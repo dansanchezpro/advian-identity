@@ -1,0 +1,45 @@
+# EditorConfig is awesome: https://EditorConfig.org
+
+# top-most EditorConfig file
+root = true
+
+# All files
+[*]
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Code files
+[*.{cs,razor,js,ts,json,css,scss,html}]
+indent_style = space
+indent_size = 4
+
+# XML and config files
+[*.{xml,config,props,targets,nuspec,resx,ruleset,vsixmanifest,vsct}]
+indent_style = space
+indent_size = 2
+
+# JSON files
+[*.json]
+indent_style = space
+indent_size = 2
+
+# Markdown files
+[*.md]
+trim_trailing_whitespace = false
+
+# Razor files (specific settings)
+[*.razor]
+charset = utf-8
+indent_style = space
+indent_size = 4
+
+# Solution files
+[*.sln]
+indent_style = tab
+
+# Project files
+[*.{csproj,vbproj,vcxproj,proj,projitems,shproj}]
+indent_style = space
+indent_size = 2

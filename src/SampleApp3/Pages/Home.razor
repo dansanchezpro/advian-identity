@@ -1,0 +1,111 @@
+@page "/"
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.WebAssembly.Authentication
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Sample Application 3</PageTitle>
+
+<div class="container">
+    <div class="row">
+        <div class="col-12">
+            <div class="jumbotron bg-primary text-white p-4 rounded mb-4">
+                <h1 class="display-4">Sample Application 3</h1>
+                <p class="lead">Demonstrating SSO with Custom Identity Server</p>
+                <AuthorizeView>
+                    <Authorized>
+                        <div class="alert alert-success">
+                            <h5>✅ Welcome, @context.User.Identity?.Name!</h5>
+                            <p>You are successfully authenticated via SSO.</p>
+                        </div>
+                    </Authorized>
+                    <NotAuthorized>
+                        <div class="alert alert-warning">
+                            <h5>🔒 Authentication Required</h5>
+                            <p>Please log in to access this application.</p>
+                            <a href="authentication/login" class="btn btn-light">Login</a>
+                        </div>
+                    </NotAuthorized>
+                </AuthorizeView>
+            </div>
+        </div>
+    </div>
+
+    <AuthorizeView>
+        <Authorized>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>User Claims</h5>
+                        </div>
+                        <div class="card-body">
+                            <table class="table table-sm">
+                                @foreach (var claim in context.User.Claims)
+                                {
+                                    <tr>
+                                        <td><strong>@claim.Type</strong></td>
+                                        <td>@claim.Value</td>
+                                    </tr>
+                                }
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>Application Info</h5>
+                        </div>
+                        <div class="card-body">
+                            <ul class="list-group list-group-flush">
+                                <li class="list-group-item d-flex justify-content-between">
+                                    <strong>Client ID:</strong>
+                                    <span>sampleapp3</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between">
+                                    <strong>Port:</strong>
+                                    <span>7003</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between">
+                                    <strong>Scopes:</strong>
+                                    <span>openid, profile, email, api3</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between">
+                                    <strong>Authority:</strong>
+                                    <span>https://localhost:5000</span>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mt-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>SSO Test</h5>
+                        </div>
+                        <div class="card-body">
+                            <p>Test Single Sign-On by visiting other sample applications:</p>
+                            <div class="btn-group">
+                                <a href="https://localhost:7002" target="_blank" class="btn btn-outline-primary">Sample App 2</a>
+                                <a href="https://localhost:7003" target="_blank" class="btn btn-outline-primary">Sample App 3</a>
+                            </div>
+                            <p class="text-muted mt-2">
+                                <small>You should be automatically logged in to these applications without entering credentials again.</small>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </Authorized>
+    </AuthorizeView>
+</div>
+
+<style>
+    .jumbotron {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+</style>

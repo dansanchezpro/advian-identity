@@ -1,0 +1,27 @@
+@page "/authentication/{action}"
+@using Microsoft.AspNetCore.Components.WebAssembly.Authentication
+
+<RemoteAuthenticatorView  Action="@Action" />
+
+@code {
+    [Parameter] public string? Action { get; set; }
+    [Inject] public NavigationManager NavigationManager { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        Console.WriteLine($"[DEBUG] Authentication page - Action: {Action}");
+        await base.OnInitializedAsync();
+    }
+
+    protected Task OnLogInSucceeded()
+    {
+        Console.WriteLine("[DEBUG] Login succeeded");
+        return Task.CompletedTask;
+    }
+
+    protected Task OnLogOutSucceeded()
+    {
+        Console.WriteLine("[DEBUG] Logout succeeded");
+        return Task.CompletedTask;
+    }
+}

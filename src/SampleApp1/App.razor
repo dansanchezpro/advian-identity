@@ -1,0 +1,40 @@
+@using Microsoft.AspNetCore.Components.WebAssembly.Authentication
+
+<CascadingAuthenticationState>
+    <Router AppAssembly="@typeof(App).Assembly">
+        <Found Context="routeData">
+            <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)">
+                <NotAuthorized>
+                    <div class="container">
+                        <div class="alert alert-info">
+                            <h4>🔒 Authentication Required</h4>
+                            <p>Please log in to access this application.</p>
+                            <a href="authentication/login" class="btn btn-primary">Sign In</a>
+                        </div>
+                    </div>
+                </NotAuthorized>
+                <Authorizing>
+                    <div class="d-flex justify-content-center">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                    <p class="text-center">Checking authentication...</p>
+                </Authorizing>
+            </AuthorizeRouteView>
+            <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+        </Found>
+        <NotFound>
+            <PageTitle>Not found</PageTitle>
+            <LayoutView Layout="@typeof(MainLayout)">
+                <div class="container">
+                    <div class="alert alert-warning">
+                        <h4>Page Not Found</h4>
+                        <p>Sorry, there's nothing at this address.</p>
+                        <a href="/" class="btn btn-primary">Go Home</a>
+                    </div>
+                </div>
+            </LayoutView>
+        </NotFound>
+    </Router>
+</CascadingAuthenticationState>

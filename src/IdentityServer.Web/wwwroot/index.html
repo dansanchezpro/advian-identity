@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Identity Server</title>
+    <base href="/" />
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="css/app.css" />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <link href="IdentityServer.UI.styles.css" rel="stylesheet" />
+</head>
+
+<body>
+    <div id="app">
+        <svg class="loading-progress">
+            <circle r="40%" cx="50%" cy="50%" />
+            <circle r="40%" cx="50%" cy="50%" />
+        </svg>
+        <div class="loading-progress-text"></div>
+    </div>
+
+    <div id="blazor-error-ui">
+        An unhandled error has occurred.
+        <a href="." class="reload">Reload</a>
+        <span class="dismiss">🗙</span>
+    </div>
+    <script src="_framework/blazor.webassembly.js"></script>
+    <script>
+        window.open = function(url, target) {
+            window.location.href = url;
+        };
+        
+        // Debug logging functions
+        window.debugLog = function(message) {
+            console.log('[DEBUG] ' + new Date().toISOString() + ': ' + message);
+            // También guardar en localStorage para persistir entre recargas
+            var logs = JSON.parse(localStorage.getItem('debugLogs') || '[]');
+            logs.push(new Date().toISOString() + ': ' + message);
+            if (logs.length > 50) logs = logs.slice(-50); // Mantener solo los últimos 50
+            localStorage.setItem('debugLogs', JSON.stringify(logs));
+        };
+        
+        window.showDebugLogs = function() {
+            var logs = JSON.parse(localStorage.getItem('debugLogs') || '[]');
+            console.log('=== DEBUG LOGS ===');
+            logs.forEach(log => console.log(log));
+            console.log('==================');
+            return logs;
+        };
+        
+        window.clearDebugLogs = function() {
+            localStorage.removeItem('debugLogs');
+            console.log('Debug logs cleared');
+        };
+        
+        // Log cuando la página se está cargando
+        window.debugLog('Login page script loaded in index.html');
+        
+        // OIDC form submission function
+        window.submitOidcForm = function(formData) {
+            console.log('[UI] Submitting OIDC form to API:', formData);
+            
+            var form = document.createElement('form');
+            form.method = 'post';
+            form.action = 'https://localhost:5000/api/auth/oidc-form-login';
+            form.style.display = 'none';
+            
+            // Map field names to match C# model properties (PascalCase)
+            var fieldMapping = {
+                'email': 'Email',
+                'password': 'Password',
+                'client_id': 'ClientId',
+                'redirect_uri': 'RedirectUri',
+                'response_type': 'ResponseType',
+                'scope': 'Scope',
+                'state': 'State',
+                'code_challenge': 'CodeChallenge',
+                'code_challenge_method': 'CodeChallengeMethod'
+            };
+            
+            // Add all form fields with correct naming
+            Object.keys(formData).forEach(function(key) {
+                if (formData[key]) {
+                    var input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = fieldMapping[key] || key;
+                    input.value = formData[key];
+                    form.appendChild(input);
+                }
+            });
+            
+            document.body.appendChild(form);
+            form.submit();
+        };
+    </script>
+</body>
+
+</html>

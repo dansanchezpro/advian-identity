@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SampleApp2</title>
+    <base href="/" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="css/app.css" />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <link href="SampleApp2.styles.css" rel="stylesheet" />
+</head>
+
+<body>
+    <div id="app">
+        <svg class="loading-progress">
+            <circle r="40%" cx="50%" cy="50%" />
+            <circle r="40%" cx="50%" cy="50%" />
+        </svg>
+        <div class="loading-progress-text"></div>
+    </div>
+
+    <div id="blazor-error-ui">
+        An unhandled error has occurred.
+        <a href="." class="reload">Reload</a>
+        <span class="dismiss">🗙</span>
+    </div>
+    <script src="_content/Microsoft.AspNetCore.Components.WebAssembly.Authentication/AuthenticationService.js"></script>
+    <script src="https://localhost:5000/js/sso-helper.js"></script>
+    <script src="_framework/blazor.webassembly.js"></script>
+    <script>
+        window.addEventListener('load', function () {
+            console.log('SampleApp2 loaded successfully');
+            
+            // Check for existing SSO session and intercept authorization requests
+            setTimeout(function() {
+                if (window.SSOHelper) {
+                    const sessionId = window.SSOHelper.getSessionId();
+                    if (sessionId) {
+                        console.log('[SSO] SampleApp2: Found existing session:', sessionId);
+                        interceptOIDCRequests(sessionId);
+                    } else {
+                        console.log('[SSO] SampleApp2: No existing session found');
+                    }
+                }
+            }, 1000);
+        });
+        
+        function interceptOIDCRequests(sessionId) {
+            console.log('[SSO] SampleApp2: Setting up OIDC request interception with session:', sessionId);
+            
+            // Override window.location.assign
+            const originalAssign = window.location.assign;
+            window.location.assign = function(url) {
+                if (typeof url === 'string' && url.includes('/api/auth/oidc-login')) {
+                    const urlObj = new URL(url);
+                    urlObj.searchParams.set('session_hint', sessionId);
+                    console.log('[SSO] SampleApp2: Intercepted assign(), modified URL:', urlObj.toString());
+                    return originalAssign.call(this, urlObj.toString());
+                }
+                return originalAssign.call(this, url);
+            };
+            
+            // Override window.location.replace  
+            const originalReplace = window.location.replace;
+            window.location.replace = function(url) {
+                if (typeof url === 'string' && url.includes('/api/auth/oidc-login')) {
+                    const urlObj = new URL(url);
+                    urlObj.searchParams.set('session_hint', sessionId);
+                    console.log('[SSO] SampleApp2: Intercepted replace(), modified URL:', urlObj.toString());
+                    return originalReplace.call(this, urlObj.toString());
+                }
+                return originalReplace.call(this, url);
+            };
+            
+            // Monitor for navigation changes and modify hrefs
+            const observer = new MutationObserver(function(mutations) {
+                mutations.forEach(function(mutation) {
+                    mutation.addedNodes.forEach(function(node) {
+                        if (node.nodeType === 1 && node.tagName === 'A') {
+                            const href = node.getAttribute('href');
+                            if (href && href.includes('/api/auth/oidc-login')) {
+                                const urlObj = new URL(href, window.location.origin);
+                                urlObj.searchParams.set('session_hint', sessionId);
+                                node.setAttribute('href', urlObj.toString());
+                                console.log('[SSO] SampleApp2: Modified link href:', urlObj.toString());
+                            }
+                        }
+                    });
+                });
+            });
+            
+            observer.observe(document.body, { childList: true, subtree: true });
+        }
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sample Application 1</title>
+    <base href="/" />
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="css/app.css" />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <link href="SampleApp1.styles.css" rel="stylesheet" />
+</head>
+
+<body>
+    <div id="app">
+        <svg class="loading-progress">
+            <circle r="40%" cx="50%" cy="50%" />
+            <circle r="40%" cx="50%" cy="50%" />
+        </svg>
+        <div class="loading-progress-text"></div>
+    </div>
+
+    <div id="blazor-error-ui">
+        An unhandled error has occurred.
+        <a href="." class="reload">Reload</a>
+        <span class="dismiss">🗙</span>
+    </div>
+    <script src="_content/Microsoft.AspNetCore.Components.WebAssembly.Authentication/AuthenticationService.js"></script>
+    <script src="_framework/blazor.webassembly.js"></script>
+    <script>
+        window.addEventListener('load', function () {
+            console.log('SampleApp1 loaded successfully');
+        });
+        
+        
+        window.addEventListener('error', function(e) {
+            console.error('JavaScript error:', e.error);
+            document.getElementById('blazor-error-ui').style.display = 'block';
+        });
+        
+        // Show loading status
+        setTimeout(function() {
+            if (document.getElementById('app').innerHTML.includes('loading-progress')) {
+                console.warn('Blazor is taking longer than expected to load');
+            }
+        }, 10000);
+    </script>
+</body>
+
+</html>

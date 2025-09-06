@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>IdentityServer Desktop - Dashboard</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: #f5f7fa;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .header {
+            background: #007BFF;
+            color: white;
+            padding: 15px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 20px;
+        }
+        
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .user-avatar {
+            width: 36px;
+            height: 36px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+        
+        .main-content {
+            flex: 1;
+            padding: 30px;
+            overflow-y: auto;
+        }
+        
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            max-width: 1200px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 25px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        .card h2 {
+            margin: 0 0 20px 0;
+            color: #333;
+            font-size: 18px;
+            border-bottom: 2px solid #007BFF;
+            padding-bottom: 10px;
+        }
+        
+        .user-details {
+            margin-bottom: 15px;
+        }
+        
+        .user-details strong {
+            color: #555;
+            display: inline-block;
+            width: 80px;
+        }
+        
+        .token-info {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .token-status {
+            padding: 10px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        
+        .token-status.valid {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .token-status.expired {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .btn {
+            background: #007BFF;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px 5px 5px 0;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+        
+        .btn:hover {
+            background: #0056b3;
+        }
+        
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .btn.danger {
+            background: #dc3545;
+        }
+        
+        .btn.danger:hover {
+            background: #c82333;
+        }
+        
+        .btn.success {
+            background: #28a745;
+        }
+        
+        .btn.success:hover {
+            background: #218838;
+        }
+        
+        .api-results {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+            border-left: 4px solid #007BFF;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .api-results pre {
+            margin: 0;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+        }
+        
+        .loading {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+        
+        .countdown {
+            font-family: 'Courier New', monospace;
+            font-size: 18px;
+            font-weight: bold;
+            color: #dc3545;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .status-indicator.online {
+            background: #28a745;
+        }
+        
+        .status-indicator.offline {
+            background: #dc3545;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1><span class="status-indicator online"></span>IdentityServer Desktop</h1>
+        <div class="user-info">
+            <div class="user-avatar" id="userAvatar">?</div>
+            <div>
+                <div id="userName">Loading...</div>
+                <div style="font-size: 12px; opacity: 0.8;" id="userEmail"></div>
+            </div>
+            <button id="logoutBtn" class="btn danger">Logout</button>
+        </div>
+    </div>
+    
+    <div class="main-content">
+        <div class="dashboard-grid">
+            <!-- User Information Card -->
+            <div class="card">
+                <h2>👤 User Information</h2>
+                <div id="userInfo">
+                    <div class="user-details">
+                        <strong>Name:</strong> <span id="displayName">-</span>
+                    </div>
+                    <div class="user-details">
+                        <strong>Email:</strong> <span id="displayEmail">-</span>
+                    </div>
+                    <div class="user-details">
+                        <strong>Subject:</strong> <span id="displaySub">-</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Token Information Card -->
+            <div class="card">
+                <h2>🔐 Token Information</h2>
+                <div class="token-info">
+                    <div id="tokenStatus" class="token-status valid">Token Valid</div>
+                    <div>
+                        <strong>Expires:</strong> <span id="tokenExpiry">-</span>
+                    </div>
+                    <div>
+                        <strong>Time Remaining:</strong> 
+                        <span id="timeRemaining" class="countdown">-</span>
+                    </div>
+                    <button id="refreshTokenBtn" class="btn success">Refresh Token</button>
+                </div>
+            </div>
+            
+            <!-- API Testing Card -->
+            <div class="card" style="grid-column: 1 / -1;">
+                <h2>🔧 API Testing</h2>
+                <div>
+                    <button id="testPublicBtn" class="btn">Test Public Endpoint</button>
+                    <button id="testProtectedBtn" class="btn">Test Protected Endpoint</button>
+                    <button id="testUserInfoBtn" class="btn">Get User Info from API</button>
+                    <button id="testWeatherBtn" class="btn">Get Weather Data</button>
+                    <button id="testTokenInfoBtn" class="btn">Get Token Info</button>
+                </div>
+                
+                <div id="apiResults" class="api-results" style="display: none;">
+                    <pre id="apiResultsContent"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+        
+        let tokenUpdateInterval;
+        
+        // Load initial data
+        async function loadUserData() {
+            try {
+                const userResult = await ipcRenderer.invoke('auth:get-user-info');
+                if (userResult.success && userResult.data) {
+                    const user = userResult.data;
+                    document.getElementById('userName').textContent = user.name || user.email || 'Unknown User';
+                    document.getElementById('userEmail').textContent = user.email || '';
+                    document.getElementById('displayName').textContent = user.name || '-';
+                    document.getElementById('displayEmail').textContent = user.email || '-';
+                    document.getElementById('displaySub').textContent = user.sub || '-';
+                    
+                    const avatar = document.getElementById('userAvatar');
+                    avatar.textContent = (user.name || user.email || 'U')[0].toUpperCase();
+                }
+            } catch (error) {
+                console.error('Error loading user data:', error);
+            }
+            
+            updateTokenInfo();
+        }
+        
+        async function updateTokenInfo() {
+            try {
+                const tokenResult = await ipcRenderer.invoke('auth:get-tokens');
+                if (tokenResult.success && tokenResult.data) {
+                    const { expiresAt, isExpired, timeRemaining } = tokenResult.data;
+                    
+                    const statusDiv = document.getElementById('tokenStatus');
+                    const expirySpan = document.getElementById('tokenExpiry');
+                    const remainingSpan = document.getElementById('timeRemaining');
+                    
+                    expirySpan.textContent = new Date(expiresAt).toLocaleString();
+                    
+                    if (isExpired) {
+                        statusDiv.textContent = 'Token Expired';
+                        statusDiv.className = 'token-status expired';
+                        remainingSpan.textContent = 'Expired';
+                    } else {
+                        statusDiv.textContent = 'Token Valid';
+                        statusDiv.className = 'token-status valid';
+                        
+                        const minutes = Math.floor(timeRemaining / 60000);
+                        const seconds = Math.floor((timeRemaining % 60000) / 1000);
+                        remainingSpan.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                    }
+                }
+            } catch (error) {
+                console.error('Error updating token info:', error);
+            }
+        }
+        
+        function showApiResult(data, error = null) {
+            const resultsDiv = document.getElementById('apiResults');
+            const contentPre = document.getElementById('apiResultsContent');
+            
+            resultsDiv.style.display = 'block';
+            
+            if (error) {
+                contentPre.textContent = `ERROR: ${error}`;
+                resultsDiv.style.borderLeftColor = '#dc3545';
+            } else {
+                contentPre.textContent = JSON.stringify(data, null, 2);
+                resultsDiv.style.borderLeftColor = '#007BFF';
+            }
+        }
+        
+        // Event listeners
+        document.getElementById('logoutBtn').addEventListener('click', async () => {
+            if (confirm('Are you sure you want to logout?')) {
+                try {
+                    await ipcRenderer.invoke('auth:logout');
+                } catch (error) {
+                    console.error('Logout error:', error);
+                    alert('Error during logout: ' + error.message);
+                }
+            }
+        });
+        
+        document.getElementById('refreshTokenBtn').addEventListener('click', async () => {
+            const btn = document.getElementById('refreshTokenBtn');
+            btn.disabled = true;
+            btn.textContent = 'Refreshing...';
+            
+            try {
+                const result = await ipcRenderer.invoke('auth:refresh-tokens');
+                if (result.success) {
+                    updateTokenInfo();
+                    showApiResult({ message: 'Tokens refreshed successfully', ...result.data });
+                } else {
+                    throw new Error(result.error);
+                }
+            } catch (error) {
+                showApiResult(null, error.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Refresh Token';
+            }
+        });
+        
+        // API test buttons
+        document.getElementById('testPublicBtn').addEventListener('click', async () => {
+            try {
+                const result = await ipcRenderer.invoke('auth:call-api', 'public');
+                showApiResult(result);
+            } catch (error) {
+                showApiResult(null, error.message);
+            }
+        });
+        
+        document.getElementById('testProtectedBtn').addEventListener('click', async () => {
+            try {
+                const result = await ipcRenderer.invoke('auth:call-api', 'protected');
+                showApiResult(result);
+            } catch (error) {
+                showApiResult(null, error.message);
+            }
+        });
+        
+        document.getElementById('testUserInfoBtn').addEventListener('click', async () => {
+            try {
+                const result = await ipcRenderer.invoke('auth:call-api', 'user-info');
+                showApiResult(result);
+            } catch (error) {
+                showApiResult(null, error.message);
+            }
+        });
+        
+        document.getElementById('testWeatherBtn').addEventListener('click', async () => {
+            try {
+                const result = await ipcRenderer.invoke('auth:call-api', 'weather');
+                showApiResult(result);
+            } catch (error) {
+                showApiResult(null, error.message);
+            }
+        });
+        
+        document.getElementById('testTokenInfoBtn').addEventListener('click', async () => {
+            try {
+                const result = await ipcRenderer.invoke('auth:call-api', 'token-info');
+                showApiResult(result);
+            } catch (error) {
+                showApiResult(null, error.message);
+            }
+        });
+        
+        // Initialize app
+        window.addEventListener('DOMContentLoaded', () => {
+            loadUserData();
+            
+            // Update token info every 10 seconds
+            tokenUpdateInterval = setInterval(updateTokenInfo, 10000);
+        });
+        
+        window.addEventListener('beforeunload', () => {
+            if (tokenUpdateInterval) {
+                clearInterval(tokenUpdateInterval);
+            }
+        });
+    </script>
+</body>
+</html>

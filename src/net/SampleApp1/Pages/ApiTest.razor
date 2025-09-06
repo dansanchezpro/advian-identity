@@ -1,0 +1,288 @@
+@page "/api-test"
+@using Microsoft.AspNetCore.Components.WebAssembly.Authentication
+@using System.Net.Http.Headers
+@using System.Text.Json
+@inject HttpClient Http
+@inject IAccessTokenProvider TokenProvider
+
+<PageTitle>API Test - SampleApp1</PageTitle>
+
+<div class="container">
+    <div class="row">
+        <div class="col-12">
+            <h3>Protected API Testing</h3>
+            <p class="text-muted">Test calling protected endpoints on SampleBack1 API</p>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Test Actions</h5>
+                </div>
+                <div class="card-body">
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-success" @onclick="CallPublicEndpoint" disabled="@isLoading">
+                            @if (isLoading && currentAction == "public")
+                            {
+                                <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                            }
+                            Call Public Endpoint
+                        </button>
+                        
+                        <button class="btn btn-primary" @onclick="CallProtectedEndpoint" disabled="@isLoading">
+                            @if (isLoading && currentAction == "protected")
+                            {
+                                <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                            }
+                            Call Protected Endpoint
+                        </button>
+                        
+                        <button class="btn btn-info" @onclick="CallUserInfoEndpoint" disabled="@isLoading">
+                            @if (isLoading && currentAction == "userinfo")
+                            {
+                                <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                            }
+                            Call User Info Endpoint
+                        </button>
+                        
+                        <button class="btn btn-warning" @onclick="CallWeatherEndpoint" disabled="@isLoading">
+                            @if (isLoading && currentAction == "weather")
+                            {
+                                <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                            }
+                            Call Weather Endpoint
+                        </button>
+                        
+                        <button class="btn btn-secondary" @onclick="TestRefreshToken" disabled="@isLoading">
+                            @if (isLoading && currentAction == "refresh")
+                            {
+                                <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                            }
+                            Test Refresh Token (POST)
+                        </button>
+                        
+                        <button class="btn btn-outline-info" @onclick="GetTokenInfo" disabled="@isLoading">
+                            @if (isLoading && currentAction == "tokeninfo")
+                            {
+                                <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                            }
+                            Check Token Expiry
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Token Information</h5>
+                </div>
+                <div class="card-body">
+                    @if (!string.IsNullOrEmpty(accessToken))
+                    {
+                        <small class="text-muted">
+                            <strong>Access Token (first 50 chars):</strong><br>
+                            <code>@accessToken[..Math.Min(50, accessToken.Length)]...</code>
+                        </small>
+                    }
+                    else
+                    {
+                        <small class="text-warning">No access token available</small>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5>API Response</h5>
+                </div>
+                <div class="card-body">
+                    @if (!string.IsNullOrEmpty(errorMessage))
+                    {
+                        <div class="alert alert-danger">
+                            <strong>Error:</strong> @errorMessage
+                        </div>
+                    }
+                    
+                    @if (!string.IsNullOrEmpty(lastResponse))
+                    {
+                        <pre class="bg-light p-3"><code>@lastResponse</code></pre>
+                    }
+                    else
+                    {
+                        <p class="text-muted">No response yet. Click a button above to test the API.</p>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private bool isLoading = false;
+    private string currentAction = "";
+    private string lastResponse = "";
+    private string errorMessage = "";
+    private string accessToken = "";
+    private const string ApiBaseUrl = "https://localhost:6001/api";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshTokenInfo();
+    }
+
+    private async Task RefreshTokenInfo()
+    {
+        try
+        {
+            var tokenResult = await TokenProvider.RequestAccessToken();
+            if (tokenResult.TryGetToken(out var token))
+            {
+                accessToken = token.Value;
+            }
+            else
+            {
+                accessToken = "";
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error getting token: {ex.Message}");
+            accessToken = "";
+        }
+    }
+
+    private async Task CallPublicEndpoint()
+    {
+        await ExecuteApiCall("public", async () =>
+        {
+            var response = await Http.GetAsync($"{ApiBaseUrl}/api/public");
+            return await response.Content.ReadAsStringAsync();
+        });
+    }
+
+    private async Task CallProtectedEndpoint()
+    {
+        await ExecuteApiCall("protected", async () =>
+        {
+            using var httpClient = new HttpClient();
+            await SetAuthorizationHeader(httpClient);
+            
+            var response = await httpClient.GetAsync($"{ApiBaseUrl}/api/protected");
+            return await response.Content.ReadAsStringAsync();
+        });
+    }
+
+    private async Task CallUserInfoEndpoint()
+    {
+        await ExecuteApiCall("userinfo", async () =>
+        {
+            using var httpClient = new HttpClient();
+            await SetAuthorizationHeader(httpClient);
+            
+            var response = await httpClient.GetAsync($"{ApiBaseUrl}/api/user-info");
+            return await response.Content.ReadAsStringAsync();
+        });
+    }
+
+    private async Task CallWeatherEndpoint()
+    {
+        await ExecuteApiCall("weather", async () =>
+        {
+            using var httpClient = new HttpClient();
+            await SetAuthorizationHeader(httpClient);
+            
+            var response = await httpClient.GetAsync($"{ApiBaseUrl}/api/weather");
+            return await response.Content.ReadAsStringAsync();
+        });
+    }
+
+    private async Task TestRefreshToken()
+    {
+        await ExecuteApiCall("refresh", async () =>
+        {
+            using var httpClient = new HttpClient();
+            await SetAuthorizationHeader(httpClient);
+            
+            var requestData = new { TestData = "Refresh token test", RequestTime = DateTime.UtcNow };
+            var json = JsonSerializer.Serialize(requestData);
+            var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+            
+            var response = await httpClient.PostAsync($"{ApiBaseUrl}/api/test-refresh", content);
+            return await response.Content.ReadAsStringAsync();
+        });
+    }
+
+    private async Task GetTokenInfo()
+    {
+        await ExecuteApiCall("tokeninfo", async () =>
+        {
+            using var httpClient = new HttpClient();
+            await SetAuthorizationHeader(httpClient);
+            
+            var response = await httpClient.GetAsync($"{ApiBaseUrl}/api/token-info");
+            return await response.Content.ReadAsStringAsync();
+        });
+    }
+
+    private async Task<string> SetAuthorizationHeader(HttpClient httpClient)
+    {
+        var tokenResult = await TokenProvider.RequestAccessToken();
+        if (tokenResult.TryGetToken(out var token))
+        {
+            httpClient.DefaultRequestHeaders.Authorization = 
+                new AuthenticationHeaderValue("Bearer", token.Value);
+            return token.Value;
+        }
+        throw new InvalidOperationException("Unable to retrieve access token");
+    }
+
+    private async Task ExecuteApiCall(string action, Func<Task<string>> apiCall)
+    {
+        isLoading = true;
+        currentAction = action;
+        errorMessage = "";
+        lastResponse = "";
+
+        try
+        {
+            await RefreshTokenInfo();
+            var response = await apiCall();
+            
+            // Pretty print JSON response
+            try
+            {
+                var jsonDoc = JsonDocument.Parse(response);
+                lastResponse = JsonSerializer.Serialize(jsonDoc, new JsonSerializerOptions { WriteIndented = true });
+            }
+            catch
+            {
+                lastResponse = response;
+            }
+        }
+        catch (AccessTokenNotAvailableException ex)
+        {
+            ex.Redirect();
+        }
+        catch (HttpRequestException ex)
+        {
+            errorMessage = $"HTTP Error: {ex.Message}";
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            currentAction = "";
+        }
+    }
+}

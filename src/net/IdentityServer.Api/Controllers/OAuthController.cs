@@ -211,23 +211,41 @@ public class OAuthController : ControllerBase
         }
 
         var user = await _userService.FindByIdAsync(authCode.UserId);
+        Console.WriteLine($"[DEBUG] User lookup - UserId: {authCode.UserId}, User found: {user != null}");
         if (user == null)
         {
+            Console.WriteLine($"[DEBUG] FAILED: User not found for UserId: {authCode.UserId}");
             return BadRequest(new { error = "invalid_grant" });
         }
 
         var issuer = $"{Request.Scheme}://{Request.Host}";
         var jwtId = Guid.NewGuid().ToString();
 
-        var accessToken = _tokenService.GenerateJwtToken(
-            user.Id, user.Email, user.FirstName, user.LastName, 
-            authCode.Scopes, issuer, client.ClientId, client.AccessTokenLifetime / 60);
+        Console.WriteLine($"[DEBUG] Generating tokens - Issuer: {issuer}, ClientId: {client.ClientId}, Lifetime: {client.AccessTokenLifetime / 60} min");
 
-        var idToken = _tokenService.GenerateJwtToken(
-            user.Id, user.Email, user.FirstName, user.LastName,
-            new List<string> { "openid" }, issuer, client.ClientId, client.AccessTokenLifetime / 60);
+        string accessToken;
+        string idToken;
 
-        Console.WriteLine($"[DEBUG] Token generated successfully - AccessToken length: {accessToken.Length}, IDToken length: {idToken.Length}");
+        try
+        {
+            accessToken = _tokenService.GenerateJwtToken(
+                user.Id, user.Email, user.FirstName, user.LastName,
+                authCode.Scopes, issuer, client.ClientId, client.AccessTokenLifetime / 60);
+
+            Console.WriteLine($"[DEBUG] Access token generated - Length: {accessToken.Length}");
+
+            idToken = _tokenService.GenerateJwtToken(
+                user.Id, user.Email, user.FirstName, user.LastName,
+                new List<string> { "openid" }, issuer, client.ClientId, client.AccessTokenLifetime / 60);
+
+            Console.WriteLine($"[DEBUG] Token generated successfully - AccessToken length: {accessToken.Length}, IDToken length: {idToken.Length}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] Failed to generate JWT tokens: {ex.Message}");
+            Console.WriteLine($"[ERROR] Stack trace: {ex.StackTrace}");
+            return BadRequest(new { error = "token_generation_failed", error_description = ex.Message });
+        }
 
         // Generate refresh token if offline_access scope is requested
         string? refreshToken = null;

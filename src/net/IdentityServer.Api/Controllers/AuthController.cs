@@ -2,10 +2,12 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using IdentityServer.Api.Data;
 using IdentityServer.Api.Services;
+using IdentityServer.Api.Models;
 using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using System.Security.Claims;
+using System.Text.Json.Serialization;
 
 namespace IdentityServer.Api.Controllers;
 
@@ -185,30 +187,51 @@ public class AuthController : ControllerBase
     [HttpGet("external/{provider}")]
     public IActionResult ExternalLogin(string provider, [FromQuery] string? returnUrl = null)
     {
-        var redirectUrl = Url.Action(nameof(ExternalCallback), "Auth", new { returnUrl }, Request.Scheme);
-        
+        // Generate redirect URL with lowercase route (NO query parameters)
+        var redirectUrl = $"{Request.Scheme}://{Request.Host}/api/auth/external-callback";
+
         if (provider.ToLower() == "google")
         {
             var clientId = _configuration["Authentication:Google:ClientId"];
+
+            // Encode returnUrl in state parameter instead of redirect_uri
+            var state = string.IsNullOrEmpty(returnUrl)
+                ? Guid.NewGuid().ToString()
+                : Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(returnUrl));
+
+            // Log para debugging
+            Console.WriteLine($"[DEBUG] Google OAuth - Redirect URI: {redirectUrl}");
+            Console.WriteLine($"[DEBUG] Google OAuth - Client ID: {clientId}");
+            Console.WriteLine($"[DEBUG] Google OAuth - State (encoded returnUrl): {state}");
+
             var authUrl = $"https://accounts.google.com/o/oauth2/v2/auth?" +
                 $"client_id={clientId}&" +
-                $"redirect_uri={Uri.EscapeDataString(redirectUrl!)}&" +
+                $"redirect_uri={Uri.EscapeDataString(redirectUrl)}&" +
                 $"response_type=code&" +
                 $"scope=openid%20profile%20email&" +
+                $"state={Uri.EscapeDataString(state)}&" +
                 $"access_type=offline";
-            
+
+            Console.WriteLine($"[DEBUG] Google OAuth - Full Auth URL: {authUrl}");
+
             return Redirect(authUrl);
         }
         else if (provider.ToLower() == "microsoft")
         {
             var clientId = _configuration["Authentication:Microsoft:ClientId"];
+
+            Console.WriteLine($"[DEBUG] Microsoft OAuth - Redirect URI: {redirectUrl}");
+            Console.WriteLine($"[DEBUG] Microsoft OAuth - Client ID: {clientId}");
+
             var authUrl = $"https://login.microsoftonline.com/common/oauth2/v2.0/authorize?" +
                 $"client_id={clientId}&" +
-                $"redirect_uri={Uri.EscapeDataString(redirectUrl!)}&" +
+                $"redirect_uri={Uri.EscapeDataString(redirectUrl)}&" +
                 $"response_type=code&" +
                 $"scope=openid%20profile%20email&" +
                 $"response_mode=query";
-            
+
+            Console.WriteLine($"[DEBUG] Microsoft OAuth - Full Auth URL: {authUrl}");
+
             return Redirect(authUrl);
         }
         
@@ -218,58 +241,389 @@ public class AuthController : ControllerBase
     [HttpGet("external-callback")]
     public async Task<IActionResult> ExternalCallback([FromQuery] string code, [FromQuery] string? state = null, [FromQuery] string? returnUrl = null)
     {
-        // This is a simplified version - in production, you'd need to validate the code with the external provider
-        
-        // For demo purposes, we'll create a mock external user
-        var email = "external@example.com";
-        var firstName = "External";
-        var lastName = "User";
-        var provider = "Google"; // or determine from state
-        var externalUserId = "external_123";
-
-        var user = await _userService.FindByExternalLoginAsync(provider, externalUserId);
-        if (user == null)
+        try
         {
-            user = await _userService.FindByEmailAsync(email);
+            // Decode returnUrl from state parameter
+            if (!string.IsNullOrEmpty(state) && string.IsNullOrEmpty(returnUrl))
+            {
+                try
+                {
+                    var decodedBytes = Convert.FromBase64String(state);
+                    returnUrl = System.Text.Encoding.UTF8.GetString(decodedBytes);
+                    Console.WriteLine($"[DEBUG] Decoded returnUrl from state: {returnUrl}");
+                }
+                catch
+                {
+                    // State is not a valid Base64 string, it might be just a GUID
+                    Console.WriteLine($"[DEBUG] State is not a valid returnUrl, using as-is: {state}");
+                }
+            }
+
+            // Exchange code for access token with Google
+            var redirectUri = $"{Request.Scheme}://{Request.Host}/api/auth/external-callback";
+            var tokenResponse = await ExchangeGoogleCodeForToken(code, redirectUri);
+
+            if (tokenResponse == null)
+            {
+                return BadRequest(new { error = "failed_to_exchange_code", error_description = "Failed to exchange authorization code for token" });
+            }
+
+            // Get user info from Google
+            var googleUserInfo = await GetGoogleUserInfo(tokenResponse.AccessToken);
+
+            if (googleUserInfo == null)
+            {
+                return BadRequest(new { error = "failed_to_get_user_info", error_description = "Failed to retrieve user information from Google" });
+            }
+
+            var provider = "Google";
+            var externalUserId = googleUserInfo.Id;
+            var email = googleUserInfo.Email;
+            var firstName = googleUserInfo.GivenName ?? googleUserInfo.Name ?? email.Split('@')[0];
+            var lastName = googleUserInfo.FamilyName ?? "User";
+
+            Console.WriteLine($"[DEBUG] Google user info - Email: {email}, ID: {externalUserId}, FirstName: {firstName}, LastName: {lastName}");
+
+            // For LOGIN flow: User must already exist, don't auto-create
+            var user = await _userService.FindByExternalLoginAsync(provider, externalUserId);
             if (user == null)
             {
-                user = await _userService.CreateUserAsync(email, firstName, lastName);
+                Console.WriteLine($"[DEBUG] User not found by GoogleId, searching by email: {email}");
+                user = await _userService.FindByEmailAsync(email);
+
+                if (user == null)
+                {
+                    // User doesn't exist - redirect back to login with error
+                    Console.WriteLine($"[DEBUG] User not found - redirecting to login with error");
+                    var loginUrl = _configuration["IdentityServer:LoginUrl"] ?? "https://localhost:7000";
+                    var loginWithError = $"{loginUrl}/login?error=no_account";
+
+                    if (!string.IsNullOrEmpty(returnUrl))
+                    {
+                        loginWithError += $"&returnUrl={Uri.EscapeDataString(returnUrl)}";
+
+                        // Preserve OIDC parameters if present in returnUrl
+                        try
+                        {
+                            var returnUri = new Uri(returnUrl, UriKind.RelativeOrAbsolute);
+                            if (returnUri.IsAbsoluteUri)
+                            {
+                                var returnQueryParams = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(returnUri.Query);
+                                if (returnQueryParams.ContainsKey("client_id"))
+                                {
+                                    loginWithError += $"&client_id={Uri.EscapeDataString(returnQueryParams["client_id"].ToString())}";
+                                }
+                                if (returnQueryParams.ContainsKey("redirect_uri"))
+                                {
+                                    loginWithError += $"&redirect_uri={Uri.EscapeDataString(returnQueryParams["redirect_uri"].ToString())}";
+                                }
+                                if (returnQueryParams.ContainsKey("response_type"))
+                                {
+                                    loginWithError += $"&response_type={Uri.EscapeDataString(returnQueryParams["response_type"].ToString())}";
+                                }
+                                if (returnQueryParams.ContainsKey("scope"))
+                                {
+                                    loginWithError += $"&scope={Uri.EscapeDataString(returnQueryParams["scope"].ToString())}";
+                                }
+                                if (returnQueryParams.ContainsKey("state"))
+                                {
+                                    loginWithError += $"&state={Uri.EscapeDataString(returnQueryParams["state"].ToString())}";
+                                }
+                                if (returnQueryParams.ContainsKey("code_challenge"))
+                                {
+                                    loginWithError += $"&code_challenge={Uri.EscapeDataString(returnQueryParams["code_challenge"].ToString())}";
+                                }
+                                if (returnQueryParams.ContainsKey("code_challenge_method"))
+                                {
+                                    loginWithError += $"&code_challenge_method={Uri.EscapeDataString(returnQueryParams["code_challenge_method"].ToString())}";
+                                }
+                            }
+                        }
+                        catch
+                        {
+                            // Ignore parsing errors
+                        }
+                    }
+
+                    return Redirect(loginWithError);
+                }
+                else
+                {
+                    // User exists by email but not linked to Google yet - link it
+                    Console.WriteLine($"[DEBUG] User found by email with ID: {user.Id}, linking Google account");
+                    await _userService.AddExternalLoginAsync(user.Id, provider, externalUserId, provider);
+
+                    // Update GoogleId if not set
+                    if (string.IsNullOrEmpty(user.GoogleId))
+                    {
+                        user.GoogleId = externalUserId;
+                        await _context.SaveChangesAsync();
+                        Console.WriteLine($"[DEBUG] GoogleId updated for user ID: {user.Id}");
+                    }
+                }
             }
-            await _userService.AddExternalLoginAsync(user.Id, provider, externalUserId, provider);
+            else
+            {
+                Console.WriteLine($"[DEBUG] User found by GoogleId with ID: {user.Id}");
+            }
+
+            // Create .NET Authentication session
+            var claims = new List<Claim>
+            {
+                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                new Claim(ClaimTypes.Email, user.Email),
+                new Claim(ClaimTypes.GivenName, user.FirstName),
+                new Claim(ClaimTypes.Surname, user.LastName),
+                new Claim("name", $"{user.FirstName} {user.LastName}")
+            };
+            var claimsIdentity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+
+            await HttpContext.SignInAsync(
+                CookieAuthenticationDefaults.AuthenticationScheme,
+                new ClaimsPrincipal(claimsIdentity),
+                new AuthenticationProperties { IsPersistent = true });
+
+            Console.WriteLine($"[DEBUG] User signed in with cookie authentication");
+            Console.WriteLine($"[DEBUG] ReturnUrl: {returnUrl ?? "(empty)"}");
+
+            if (string.IsNullOrEmpty(returnUrl))
+            {
+                Console.WriteLine($"[DEBUG] No returnUrl, redirecting to Identity Server UI");
+                // Redirect to Identity Server dashboard or login success page
+                return Redirect($"{_configuration["IdentityServer:LoginUrl"]}/dashboard");
+            }
+
+            // Check if returnUrl contains OIDC parameters (client_id, redirect_uri, etc.)
+            var uri = new Uri(returnUrl, UriKind.Absolute);
+            var queryParams = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
+
+            if (queryParams.ContainsKey("client_id") && queryParams.ContainsKey("redirect_uri"))
+            {
+                // This is an OIDC flow, generate authorization code
+                var oidcClientId = queryParams["client_id"].ToString();
+                var oidcRedirectUri = queryParams["redirect_uri"].ToString();
+                var responseType = queryParams.ContainsKey("response_type") ? queryParams["response_type"].ToString() : "code";
+                var oidcScope = queryParams.ContainsKey("scope") ? queryParams["scope"].ToString() : "openid";
+                var oidcState = queryParams.ContainsKey("state") ? queryParams["state"].ToString() : null;
+                var oidcCodeChallenge = queryParams.ContainsKey("code_challenge") ? queryParams["code_challenge"].ToString() : null;
+                var oidcCodeChallengeMethod = queryParams.ContainsKey("code_challenge_method") ? queryParams["code_challenge_method"].ToString() : null;
+
+                Console.WriteLine($"[DEBUG] OIDC flow detected - Client: {oidcClientId}, RedirectUri: {oidcRedirectUri}");
+
+                // Generate authorization code
+                var authCode = await _tokenService.GenerateAuthorizationCodeAsync(
+                    oidcClientId, user.Id, oidcScope.Split(' ').ToList(), oidcRedirectUri,
+                    oidcCodeChallenge, oidcCodeChallengeMethod);
+
+                // Build redirect URL to client app
+                var finalRedirectUrl = $"{oidcRedirectUri}?code={authCode}";
+                if (!string.IsNullOrEmpty(oidcState))
+                    finalRedirectUrl += $"&state={Uri.EscapeDataString(oidcState)}";
+
+                Console.WriteLine($"[DEBUG] Redirecting to client app: {finalRedirectUrl}");
+                return Redirect(finalRedirectUrl);
+            }
+
+            Console.WriteLine($"[DEBUG] Simple redirect to: {returnUrl}");
+            return Redirect(returnUrl);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { error = "external_login_failed", error_description = ex.Message });
+        }
+    }
+
+    private async Task<GoogleTokenResponse?> ExchangeGoogleCodeForToken(string code, string redirectUri)
+    {
+        using var httpClient = new HttpClient();
+        var tokenRequest = new Dictionary<string, string>
+        {
+            { "code", code },
+            { "client_id", _configuration["Authentication:Google:ClientId"]! },
+            { "client_secret", _configuration["Authentication:Google:ClientSecret"]! },
+            { "redirect_uri", redirectUri },
+            { "grant_type", "authorization_code" }
+        };
+
+        var response = await httpClient.PostAsync("https://oauth2.googleapis.com/token", new FormUrlEncodedContent(tokenRequest));
+
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
         }
 
-        // Create .NET Authentication session
-        var claims = new List<Claim>
-        {
-            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new Claim(ClaimTypes.Email, user.Email),
-            new Claim(ClaimTypes.GivenName, user.FirstName),
-            new Claim(ClaimTypes.Surname, user.LastName),
-            new Claim("name", $"{user.FirstName} {user.LastName}")
-        };
-        var claimsIdentity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+        return await response.Content.ReadFromJsonAsync<GoogleTokenResponse>();
+    }
 
-        await HttpContext.SignInAsync(
-            CookieAuthenticationDefaults.AuthenticationScheme,
-            new ClaimsPrincipal(claimsIdentity),
-            new AuthenticationProperties { IsPersistent = true });
+    private async Task<GoogleUserInfo?> GetGoogleUserInfo(string accessToken)
+    {
+        using var httpClient = new HttpClient();
+        httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
 
-        if (string.IsNullOrEmpty(returnUrl))
+        var response = await httpClient.GetAsync("https://www.googleapis.com/oauth2/v2/userinfo");
+
+        if (!response.IsSuccessStatusCode)
         {
+            return null;
+        }
+
+        return await response.Content.ReadFromJsonAsync<GoogleUserInfo>();
+    }
+
+    [HttpPost("register")]
+    public async Task<IActionResult> Register([FromBody] RegisterRequest request)
+    {
+        try
+        {
+            // Validate age (must be at least 13 years old)
+            if (request.DateOfBirth.HasValue)
+            {
+                var age = DateTime.Today.Year - request.DateOfBirth.Value.Year;
+                if (request.DateOfBirth.Value > DateTime.Today.AddYears(-age)) age--;
+
+                if (age < 13)
+                {
+                    return BadRequest(new { error = "age_restriction", error_description = "You must be at least 13 years old to register" });
+                }
+            }
+
+            var user = await _userService.RegisterUserAsync(
+                request.Email,
+                request.FirstName,
+                request.LastName,
+                request.Password,
+                request.DateOfBirth);
+
+            // Automatically sign in the user after registration
+            var claims = new List<Claim>
+            {
+                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                new Claim(ClaimTypes.Email, user.Email),
+                new Claim(ClaimTypes.GivenName, user.FirstName),
+                new Claim(ClaimTypes.Surname, user.LastName),
+                new Claim("name", $"{user.FirstName} {user.LastName}")
+            };
+            var claimsIdentity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+
+            await HttpContext.SignInAsync(
+                CookieAuthenticationDefaults.AuthenticationScheme,
+                new ClaimsPrincipal(claimsIdentity),
+                new AuthenticationProperties { IsPersistent = true });
+
             return Ok(new
             {
                 success = true,
+                message = "User registered successfully",
                 user = new
                 {
                     id = user.Id,
                     email = user.Email,
                     firstName = user.FirstName,
                     lastName = user.LastName
-                },
+                }
             });
         }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = "registration_failed", error_description = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { error = "server_error", error_description = "An unexpected error occurred during registration" });
+        }
+    }
 
-        return Redirect(returnUrl);
+    [HttpPost("register-complete")]
+    public async Task<IActionResult> RegisterComplete([FromForm] RegisterCompleteRequest request)
+    {
+        try
+        {
+            Console.WriteLine($"[DEBUG] RegisterComplete called - Email: {request.Email}");
+
+            // Validate age (must be at least 13 years old)
+            if (request.DateOfBirth.HasValue)
+            {
+                var age = DateTime.Today.Year - request.DateOfBirth.Value.Year;
+                if (request.DateOfBirth.Value > DateTime.Today.AddYears(-age)) age--;
+
+                if (age < 13)
+                {
+                    return BadRequest(new { error = "age_restriction", error_description = "You must be at least 13 years old to register" });
+                }
+            }
+
+            var user = await _userService.RegisterUserAsync(
+                request.Email,
+                request.FirstName,
+                request.LastName,
+                request.Password,
+                request.DateOfBirth);
+
+            Console.WriteLine($"[DEBUG] User created with ID: {user.Id}");
+
+            // Automatically sign in the user after registration
+            var claims = new List<Claim>
+            {
+                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                new Claim(ClaimTypes.Email, user.Email),
+                new Claim(ClaimTypes.GivenName, user.FirstName),
+                new Claim(ClaimTypes.Surname, user.LastName),
+                new Claim("name", $"{user.FirstName} {user.LastName}")
+            };
+            var claimsIdentity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+
+            await HttpContext.SignInAsync(
+                CookieAuthenticationDefaults.AuthenticationScheme,
+                new ClaimsPrincipal(claimsIdentity),
+                new AuthenticationProperties { IsPersistent = true });
+
+            Console.WriteLine($"[DEBUG] User auto-logged in after manual registration");
+
+            // If there's a returnUrl with OIDC parameters, generate authorization code
+            if (!string.IsNullOrEmpty(request.ReturnUrl))
+            {
+                var uri = new Uri(request.ReturnUrl, UriKind.Absolute);
+                var queryParams = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
+
+                if (queryParams.ContainsKey("client_id") && queryParams.ContainsKey("redirect_uri"))
+                {
+                    var clientId = queryParams["client_id"].ToString();
+                    var redirectUri = queryParams["redirect_uri"].ToString();
+                    var scope = queryParams.ContainsKey("scope") ? queryParams["scope"].ToString() : "openid";
+                    var state = queryParams.ContainsKey("state") ? queryParams["state"].ToString() : null;
+                    var codeChallenge = queryParams.ContainsKey("code_challenge") ? queryParams["code_challenge"].ToString() : null;
+                    var codeChallengeMethod = queryParams.ContainsKey("code_challenge_method") ? queryParams["code_challenge_method"].ToString() : null;
+
+                    Console.WriteLine($"[DEBUG] OIDC flow detected - Client: {clientId}, RedirectUri: {redirectUri}");
+
+                    var authCode = await _tokenService.GenerateAuthorizationCodeAsync(
+                        clientId, user.Id, scope.Split(' ').ToList(), redirectUri,
+                        codeChallenge, codeChallengeMethod);
+
+                    var finalRedirectUrl = $"{redirectUri}?code={authCode}";
+                    if (!string.IsNullOrEmpty(state))
+                        finalRedirectUrl += $"&state={Uri.EscapeDataString(state)}";
+
+                    Console.WriteLine($"[DEBUG] Redirecting to app after manual registration: {finalRedirectUrl}");
+                    return Redirect(finalRedirectUrl);
+                }
+            }
+
+            // No OIDC flow - redirect to dashboard
+            var identityServerUrl = _configuration["IdentityServer:LoginUrl"] ?? "https://localhost:7000";
+            Console.WriteLine($"[DEBUG] Redirecting to dashboard after manual registration");
+            return Redirect($"{identityServerUrl}/dashboard");
+        }
+        catch (InvalidOperationException ex)
+        {
+            Console.WriteLine($"[ERROR] RegisterComplete failed: {ex.Message}");
+            return BadRequest(new { error = "registration_failed", error_description = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] RegisterComplete unexpected error: {ex.Message}");
+            return StatusCode(500, new { error = "server_error", error_description = "An unexpected error occurred during registration" });
+        }
     }
 
     [HttpPost("logout")]
@@ -331,6 +685,294 @@ public class AuthController : ControllerBase
 
         return Ok(new { success = true, message = "Logged out successfully" });
     }
+
+    // New endpoint: Get Google user info for registration (Step 1 - doesn't create account)
+    [HttpPost("google-userinfo")]
+    public async Task<IActionResult> GetGoogleUserInfo([FromBody] GoogleUserInfoRequest request)
+    {
+        try
+        {
+            Console.WriteLine($"[DEBUG] GetGoogleUserInfo called with code: {request.AuthorizationCode?.Substring(0, 10)}...");
+
+            if (string.IsNullOrEmpty(request.AuthorizationCode))
+            {
+                return BadRequest(new { error = "invalid_request", error_description = "Authorization code is required" });
+            }
+
+            // Exchange authorization code for Google tokens
+            var redirectUri = $"{Request.Scheme}://{Request.Host}/api/auth/google-register-callback";
+            var tokenResponse = await ExchangeGoogleCodeForToken(request.AuthorizationCode, redirectUri);
+
+            if (tokenResponse == null || string.IsNullOrEmpty(tokenResponse.AccessToken))
+            {
+                return BadRequest(new { error = "google_auth_failed", error_description = "Failed to authenticate with Google" });
+            }
+
+            // Get user info from Google
+            var googleUserInfo = await GetGoogleUserInfo(tokenResponse.AccessToken);
+
+            if (googleUserInfo == null)
+            {
+                return BadRequest(new { error = "failed_to_get_user_info", error_description = "Failed to retrieve user information from Google" });
+            }
+
+            // Check if user already exists (by GoogleId or Email)
+            var existingUser = await _context.Users
+                .FirstOrDefaultAsync(u => u.GoogleId == googleUserInfo.Id || u.Email == googleUserInfo.Email);
+
+            if (existingUser != null)
+            {
+                return BadRequest(new { error = "user_already_exists", error_description = "User already registered. Please use login instead." });
+            }
+
+            // Return Google user info WITHOUT creating account
+            // IMPORTANT: Return the id_token so frontend can send it back for validation
+            return Ok(new
+            {
+                success = true,
+                googleId = googleUserInfo.Id,
+                email = googleUserInfo.Email,
+                firstName = googleUserInfo.GivenName ?? googleUserInfo.Name ?? googleUserInfo.Email.Split('@')[0],
+                lastName = googleUserInfo.FamilyName ?? "User",
+                profilePicture = googleUserInfo.Picture,
+                idToken = tokenResponse.IdToken  // Include id_token for later validation
+            });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] GetGoogleUserInfo failed: {ex.Message}");
+            return StatusCode(500, new { error = "internal_error", error_description = "An error occurred while getting user information" });
+        }
+    }
+
+    // New endpoint: Complete registration with Google data (Step 2 - creates account)
+    [HttpPost("register-with-google")]
+    public async Task<IActionResult> RegisterWithGoogle([FromForm] RegisterWithGoogleRequest request)
+    {
+        try
+        {
+            Console.WriteLine($"[DEBUG] RegisterWithGoogle called");
+
+            // Validate required fields
+            if (string.IsNullOrEmpty(request.IdToken) || request.DateOfBirth == default || !request.AcceptTerms)
+            {
+                return BadRequest(new { error = "invalid_request", error_description = "All fields are required" });
+            }
+
+            // SECURITY: Validate the id_token directly with Google's signing keys
+            GoogleUserInfo? googleUserInfo;
+            try
+            {
+                googleUserInfo = await ValidateGoogleIdToken(request.IdToken);
+                if (googleUserInfo == null)
+                {
+                    return BadRequest(new { error = "invalid_token", error_description = "Invalid or expired Google ID token" });
+                }
+                Console.WriteLine($"[DEBUG] ID token validated successfully for user: {googleUserInfo.Email}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] ID token validation failed: {ex.Message}");
+                return BadRequest(new { error = "invalid_token", error_description = "Failed to validate Google ID token" });
+            }
+
+            // Extract verified data from the validated id_token
+            var googleId = googleUserInfo.Id;
+            var email = googleUserInfo.Email;
+            var firstName = googleUserInfo.GivenName ?? googleUserInfo.Name ?? email.Split('@')[0];
+            var lastName = googleUserInfo.FamilyName ?? "User";
+            var profilePicture = googleUserInfo.Picture;
+
+            Console.WriteLine($"[DEBUG] Creating account for verified Google user: {email} (GoogleId: {googleId})");
+
+            // Check if user already exists
+            var existingUser = await _context.Users
+                .FirstOrDefaultAsync(u => u.GoogleId == googleId || u.Email == email);
+
+            if (existingUser != null)
+            {
+                return BadRequest(new { error = "user_already_exists", error_description = "User is already registered" });
+            }
+
+            // Validate age (minimum 13 years old)
+            var age = DateTime.Today.Year - request.DateOfBirth.Year;
+            if (request.DateOfBirth.Date > DateTime.Today.AddYears(-age))
+                age--;
+
+            if (age < 13)
+            {
+                return BadRequest(new { error = "age_restriction", error_description = "You must be at least 13 years old to register" });
+            }
+
+            // Create new user with VALIDATED Google data
+            var user = new User
+            {
+                GoogleId = googleId,  // From validated id_token
+                Email = email,        // From validated id_token
+                FirstName = firstName,   // From validated id_token
+                LastName = lastName,     // From validated id_token
+                ProfilePicture = profilePicture,  // From validated id_token
+                DateOfBirth = request.DateOfBirth,  // From user input
+                PasswordHash = string.Empty, // No password for Google-only accounts
+                CreatedAt = DateTime.UtcNow,
+                IsActive = true
+            };
+
+            _context.Users.Add(user);
+            await _context.SaveChangesAsync();
+
+            Console.WriteLine($"[DEBUG] User created with ID: {user.Id}");
+
+            // Auto-login: Create authentication session
+            var claims = new List<Claim>
+            {
+                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                new Claim(ClaimTypes.Email, user.Email),
+                new Claim(ClaimTypes.GivenName, user.FirstName),
+                new Claim(ClaimTypes.Surname, user.LastName),
+                new Claim("UserId", user.Id.ToString()),
+                new Claim("name", $"{user.FirstName} {user.LastName}")
+            };
+
+            var claimsIdentity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme, null, null);
+
+            await HttpContext.SignInAsync(
+                CookieAuthenticationDefaults.AuthenticationScheme,
+                new ClaimsPrincipal(claimsIdentity),
+                new AuthenticationProperties { IsPersistent = true });
+
+            Console.WriteLine($"[DEBUG] User auto-logged in after Google registration");
+
+            // If there's a returnUrl with OIDC parameters, generate authorization code
+            if (!string.IsNullOrEmpty(request.ReturnUrl))
+            {
+                var uri = new Uri(request.ReturnUrl, UriKind.Absolute);
+                var queryParams = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
+
+                if (queryParams.ContainsKey("client_id") && queryParams.ContainsKey("redirect_uri"))
+                {
+                    var clientId = queryParams["client_id"].ToString();
+                    var redirectUri = queryParams["redirect_uri"].ToString();
+                    var scope = queryParams.ContainsKey("scope") ? queryParams["scope"].ToString() : "openid";
+                    var state = queryParams.ContainsKey("state") ? queryParams["state"].ToString() : null;
+                    var codeChallenge = queryParams.ContainsKey("code_challenge") ? queryParams["code_challenge"].ToString() : null;
+                    var codeChallengeMethod = queryParams.ContainsKey("code_challenge_method") ? queryParams["code_challenge_method"].ToString() : null;
+
+                    var authCode = await _tokenService.GenerateAuthorizationCodeAsync(
+                        clientId, user.Id, scope.Split(' ').ToList(), redirectUri,
+                        codeChallenge, codeChallengeMethod);
+
+                    var finalRedirectUrl = $"{redirectUri}?code={authCode}";
+                    if (!string.IsNullOrEmpty(state))
+                        finalRedirectUrl += $"&state={Uri.EscapeDataString(state)}";
+
+                    Console.WriteLine($"[DEBUG] Redirecting to app after Google registration: {finalRedirectUrl}");
+                    return Redirect(finalRedirectUrl);
+                }
+            }
+
+            // No OIDC flow - redirect to dashboard or home
+            var identityServerUrl = _configuration["IdentityServer:LoginUrl"] ?? "https://localhost:7000";
+            Console.WriteLine($"[DEBUG] Redirecting to dashboard after Google registration");
+            return Redirect($"{identityServerUrl}/dashboard");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] RegisterWithGoogle failed: {ex.Message}");
+            return StatusCode(500, new { error = "internal_error", error_description = "An error occurred during registration" });
+        }
+    }
+
+    // Helper method to validate Google's id_token
+    private async Task<GoogleUserInfo?> ValidateGoogleIdToken(string idToken)
+    {
+        try
+        {
+            // Decode JWT without validation first to get the payload
+            var handler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
+            var jsonToken = handler.ReadJwtToken(idToken);
+
+            // Extract claims
+            var googleId = jsonToken.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
+            var email = jsonToken.Claims.FirstOrDefault(c => c.Type == "email")?.Value;
+            var name = jsonToken.Claims.FirstOrDefault(c => c.Type == "name")?.Value;
+            var givenName = jsonToken.Claims.FirstOrDefault(c => c.Type == "given_name")?.Value;
+            var familyName = jsonToken.Claims.FirstOrDefault(c => c.Type == "family_name")?.Value;
+            var picture = jsonToken.Claims.FirstOrDefault(c => c.Type == "picture")?.Value;
+            var emailVerified = jsonToken.Claims.FirstOrDefault(c => c.Type == "email_verified")?.Value;
+
+            // Basic validation
+            if (string.IsNullOrEmpty(googleId) || string.IsNullOrEmpty(email))
+            {
+                Console.WriteLine("[ERROR] ID token missing required claims");
+                return null;
+            }
+
+            // Verify issuer
+            var issuer = jsonToken.Claims.FirstOrDefault(c => c.Type == "iss")?.Value;
+            if (issuer != "https://accounts.google.com" && issuer != "accounts.google.com")
+            {
+                Console.WriteLine($"[ERROR] Invalid issuer: {issuer}");
+                return null;
+            }
+
+            // Verify audience (should be our client_id)
+            var audience = jsonToken.Claims.FirstOrDefault(c => c.Type == "aud")?.Value;
+            var expectedClientId = _configuration["Authentication:Google:ClientId"];
+            if (audience != expectedClientId)
+            {
+                Console.WriteLine($"[ERROR] Invalid audience: {audience}, expected: {expectedClientId}");
+                return null;
+            }
+
+            // Verify expiration
+            var exp = jsonToken.Claims.FirstOrDefault(c => c.Type == "exp")?.Value;
+            if (!string.IsNullOrEmpty(exp) && long.TryParse(exp, out var expTimestamp))
+            {
+                var expirationTime = DateTimeOffset.FromUnixTimeSeconds(expTimestamp);
+                if (expirationTime < DateTimeOffset.UtcNow)
+                {
+                    Console.WriteLine($"[ERROR] ID token expired at: {expirationTime}");
+                    return null;
+                }
+            }
+
+            Console.WriteLine($"[DEBUG] ID token validated - GoogleId: {googleId}, Email: {email}");
+
+            return new GoogleUserInfo
+            {
+                Id = googleId,
+                Email = email,
+                Name = name ?? "",
+                GivenName = givenName,
+                FamilyName = familyName,
+                Picture = picture,
+                VerifiedEmail = emailVerified == "true"
+            };
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] Failed to validate ID token: {ex.Message}");
+            return null;
+        }
+    }
+
+    // Helper endpoint for Google registration callback
+    [HttpGet("google-register-callback")]
+    public IActionResult GoogleRegisterCallback([FromQuery] string code, [FromQuery] string? state = null)
+    {
+        // This callback receives the authorization code from Google during registration
+        // We'll pass it to the frontend which will then call GetGoogleUserInfo endpoint
+        var frontendUrl = _configuration["IdentityServer:LoginUrl"] ?? "https://localhost:7000";
+        var registerUrl = $"{frontendUrl}/register?google_code={Uri.EscapeDataString(code)}";
+
+        if (!string.IsNullOrEmpty(state))
+        {
+            registerUrl += $"&state={Uri.EscapeDataString(state)}";
+        }
+
+        return Redirect(registerUrl);
+    }
 }
 
 public class LoginRequest
@@ -343,27 +985,159 @@ public class LoginRequest
     public string Password { get; set; } = string.Empty;
 }
 
+public class RegisterRequest
+{
+    [Required(ErrorMessage = "First name is required")]
+    [StringLength(50, ErrorMessage = "First name cannot exceed 50 characters")]
+    public string FirstName { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Last name is required")]
+    [StringLength(50, ErrorMessage = "Last name cannot exceed 50 characters")]
+    public string LastName { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Email is required")]
+    [EmailAddress(ErrorMessage = "Invalid email format")]
+    public string Email { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Password is required")]
+    [MinLength(6, ErrorMessage = "Password must be at least 6 characters")]
+    [RegularExpression(@"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).*$",
+        ErrorMessage = "Password must contain at least one uppercase letter, one lowercase letter, and one number")]
+    public string Password { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Please confirm your password")]
+    [Compare("Password", ErrorMessage = "Passwords do not match")]
+    public string ConfirmPassword { get; set; } = string.Empty;
+
+    [DataType(DataType.Date)]
+    public DateTime? DateOfBirth { get; set; }
+
+    [Required(ErrorMessage = "You must accept the terms and conditions")]
+    [Range(typeof(bool), "true", "true", ErrorMessage = "You must accept the terms and conditions")]
+    public bool AcceptTerms { get; set; }
+}
+
 public class OidcFormLoginRequest
 {
     [Required]
     public string Email { get; set; } = string.Empty;
-    
+
     [Required]
     public string Password { get; set; } = string.Empty;
-    
+
     [Required]
     public string ClientId { get; set; } = string.Empty;
-    
+
     [Required]
     public string RedirectUri { get; set; } = string.Empty;
-    
+
     public string ResponseType { get; set; } = "code";
-    
+
     public string? Scope { get; set; }
-    
+
     public string? State { get; set; }
-    
+
     public string? CodeChallenge { get; set; }
-    
+
     public string? CodeChallengeMethod { get; set; }
+}
+
+public class GoogleTokenResponse
+{
+    [JsonPropertyName("access_token")]
+    public string? AccessToken { get; set; }
+
+    [JsonPropertyName("refresh_token")]
+    public string? RefreshToken { get; set; }
+
+    [JsonPropertyName("expires_in")]
+    public int ExpiresIn { get; set; }
+
+    [JsonPropertyName("token_type")]
+    public string? TokenType { get; set; }
+
+    [JsonPropertyName("id_token")]
+    public string? IdToken { get; set; }
+}
+
+public class GoogleUserInfo
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("email")]
+    public string Email { get; set; } = string.Empty;
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("given_name")]
+    public string? GivenName { get; set; }
+
+    [JsonPropertyName("family_name")]
+    public string? FamilyName { get; set; }
+
+    [JsonPropertyName("picture")]
+    public string? Picture { get; set; }
+
+    [JsonPropertyName("verified_email")]
+    public bool VerifiedEmail { get; set; }
+
+    [JsonPropertyName("locale")]
+    public string? Locale { get; set; }
+}
+
+public class GoogleUserInfoRequest
+{
+    [Required]
+    public string AuthorizationCode { get; set; } = string.Empty;
+}
+
+public class RegisterWithGoogleRequest
+{
+    [Required]
+    public string IdToken { get; set; } = string.Empty;  // Google's signed id_token for validation
+
+    // These fields are from the form (user input)
+    [Required]
+    public DateTime DateOfBirth { get; set; }
+
+    [Required]
+    public bool AcceptTerms { get; set; }
+
+    public string? ReturnUrl { get; set; }
+}
+
+public class RegisterCompleteRequest
+{
+    [Required(ErrorMessage = "First name is required")]
+    [StringLength(50, ErrorMessage = "First name cannot exceed 50 characters")]
+    public string FirstName { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Last name is required")]
+    [StringLength(50, ErrorMessage = "Last name cannot exceed 50 characters")]
+    public string LastName { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Email is required")]
+    [EmailAddress(ErrorMessage = "Invalid email format")]
+    public string Email { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Password is required")]
+    [MinLength(6, ErrorMessage = "Password must be at least 6 characters")]
+    [RegularExpression(@"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).*$",
+        ErrorMessage = "Password must contain at least one uppercase letter, one lowercase letter, and one number")]
+    public string Password { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Please confirm your password")]
+    [Compare("Password", ErrorMessage = "Passwords do not match")]
+    public string ConfirmPassword { get; set; } = string.Empty;
+
+    [DataType(DataType.Date)]
+    public DateTime? DateOfBirth { get; set; }
+
+    [Required(ErrorMessage = "You must accept the terms and conditions")]
+    [Range(typeof(bool), "true", "true", ErrorMessage = "You must accept the terms and conditions")]
+    public bool AcceptTerms { get; set; }
+
+    public string? ReturnUrl { get; set; }
 }

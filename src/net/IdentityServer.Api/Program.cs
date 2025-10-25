@@ -1,8 +1,6 @@
 using IdentityServer.Api.Data;
 using IdentityServer.Api.Services;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.AspNetCore.Authentication.Google;
-using Microsoft.AspNetCore.Authentication.MicrosoftAccount;
 using Microsoft.AspNetCore.Authentication.Cookies;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -61,19 +59,10 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest; // For localhost testing
         options.Cookie.SameSite = SameSiteMode.Lax;
         options.Cookie.Domain = ".localhost"; // Share cookie across localhost ports
-    })
-    .AddGoogle(GoogleDefaults.AuthenticationScheme, options =>
-    {
-        options.ClientId = builder.Configuration["Authentication:Google:ClientId"] ?? "your-google-client-id";
-        options.ClientSecret = builder.Configuration["Authentication:Google:ClientSecret"] ?? "your-google-client-secret";
-        options.CallbackPath = "/api/auth/external-callback";
-    })
-    .AddMicrosoftAccount(MicrosoftAccountDefaults.AuthenticationScheme, options =>
-    {
-        options.ClientId = builder.Configuration["Authentication:Microsoft:ClientId"] ?? "your-microsoft-client-id";
-        options.ClientSecret = builder.Configuration["Authentication:Microsoft:ClientSecret"] ?? "your-microsoft-client-secret";
-        options.CallbackPath = "/api/auth/external-callback";
     });
+
+// External OAuth providers are handled manually in AuthController
+// .AddGoogle and .AddMicrosoftAccount middleware removed to avoid conflicts with custom implementation
 
 // Configure JWT settings
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("JWT"));

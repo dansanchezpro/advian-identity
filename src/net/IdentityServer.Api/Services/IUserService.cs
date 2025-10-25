@@ -13,6 +13,7 @@ public interface IUserService
     Task<User?> FindByIdAsync(int id);
     Task<User?> FindByExternalLoginAsync(string provider, string providerKey);
     Task<User> CreateUserAsync(string email, string firstName, string lastName, string? password = null);
+    Task<User> RegisterUserAsync(string email, string firstName, string lastName, string password, DateTime? dateOfBirth = null);
     Task AddExternalLoginAsync(int userId, string provider, string providerKey, string displayName);
 }
 
@@ -66,6 +67,31 @@ public class UserService : IUserService
             FirstName = firstName,
             LastName = lastName,
             PasswordHash = password != null ? HashPassword(password) : string.Empty,
+            CreatedAt = DateTime.UtcNow,
+            IsActive = true
+        };
+
+        _context.Users.Add(user);
+        await _context.SaveChangesAsync();
+        return user;
+    }
+
+    public async Task<User> RegisterUserAsync(string email, string firstName, string lastName, string password, DateTime? dateOfBirth = null)
+    {
+        // Check if user already exists
+        var existingUser = await FindByEmailAsync(email);
+        if (existingUser != null)
+        {
+            throw new InvalidOperationException("User with this email already exists");
+        }
+
+        var user = new User
+        {
+            Email = email,
+            FirstName = firstName,
+            LastName = lastName,
+            PasswordHash = HashPassword(password),
+            DateOfBirth = dateOfBirth,
             CreatedAt = DateTime.UtcNow,
             IsActive = true
         };

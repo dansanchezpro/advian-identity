@@ -62,12 +62,12 @@
         // OIDC form submission function
         window.submitOidcForm = function(formData) {
             console.log('[UI] Submitting OIDC form to API:', formData);
-            
+
             var form = document.createElement('form');
             form.method = 'post';
             form.action = 'https://localhost:5000/api/auth/oidc-form-login';
             form.style.display = 'none';
-            
+
             // Map field names to match C# model properties (PascalCase)
             var fieldMapping = {
                 'email': 'Email',
@@ -80,7 +80,7 @@
                 'code_challenge': 'CodeChallenge',
                 'code_challenge_method': 'CodeChallengeMethod'
             };
-            
+
             // Add all form fields with correct naming
             Object.keys(formData).forEach(function(key) {
                 if (formData[key]) {
@@ -91,7 +91,68 @@
                     form.appendChild(input);
                 }
             });
-            
+
+            document.body.appendChild(form);
+            form.submit();
+        };
+
+        // Google registration form submission function
+        window.submitGoogleRegisterForm = function(formData) {
+            console.log('[UI] Submitting Google registration form to API:', formData);
+
+            var form = document.createElement('form');
+            form.method = 'post';
+            form.action = 'https://localhost:5000/api/auth/register-with-google';
+            form.style.display = 'none';
+
+            // Add all form fields as-is (backend expects JSON model binding)
+            // But since we're doing form submission, we need to match property names
+            Object.keys(formData).forEach(function(key) {
+                if (formData[key] !== null && formData[key] !== undefined) {
+                    var input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = key;
+                    input.value = formData[key];
+                    form.appendChild(input);
+                }
+            });
+
+            document.body.appendChild(form);
+            form.submit();
+        };
+
+        // Manual registration form submission function
+        window.submitManualRegisterForm = function(formData) {
+            console.log('[UI] Submitting manual registration form to API:', formData);
+
+            var form = document.createElement('form');
+            form.method = 'post';
+            form.action = 'https://localhost:5000/api/auth/register-complete';
+            form.style.display = 'none';
+
+            // Map field names to match C# model properties (PascalCase)
+            var fieldMapping = {
+                'firstName': 'FirstName',
+                'lastName': 'LastName',
+                'email': 'Email',
+                'password': 'Password',
+                'confirmPassword': 'ConfirmPassword',
+                'dateOfBirth': 'DateOfBirth',
+                'acceptTerms': 'AcceptTerms',
+                'returnUrl': 'ReturnUrl'
+            };
+
+            // Add all form fields with correct naming
+            Object.keys(formData).forEach(function(key) {
+                if (formData[key] !== null && formData[key] !== undefined) {
+                    var input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = fieldMapping[key] || key;
+                    input.value = formData[key];
+                    form.appendChild(input);
+                }
+            });
+
             document.body.appendChild(form);
             form.submit();
         };

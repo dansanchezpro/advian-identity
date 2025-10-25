@@ -1,0 +1,828 @@
+@page "/register"
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.WebUtilities
+@inject HttpClient Http
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+
+<PageTitle>Create Account - Identity Server</PageTitle>
+
+<div class="register-container">
+    <div class="register-card">
+        <div class="register-header">
+            <h1>Create Account</h1>
+            <p>Join us and start your journey</p>
+        </div>
+
+        <div class="register-form-container">
+            <!-- Registro Normal -->
+            <EditForm Model="@registerModel" OnValidSubmit="@HandleRegister" class="register-form">
+                @if (!isGoogleRegistration)
+                {
+                    <DataAnnotationsValidator />
+                    <ValidationSummary class="validation-summary" />
+                }
+
+                @if (isGoogleRegistration)
+                {
+                    <div class="google-badge">
+                        <svg class="google-icon-small" viewBox="0 0 24 24">
+                            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                        </svg>
+                        Registering with Google
+                    </div>
+                }
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="firstName">First Name</label>
+                        <InputText id="firstName" @bind-Value="registerModel.FirstName" class="form-control" placeholder="John" readonly="@isGoogleRegistration" />
+                        @if (!isGoogleRegistration)
+                        {
+                            <ValidationMessage For="@(() => registerModel.FirstName)" class="validation-message" />
+                        }
+                    </div>
+
+                    <div class="form-group">
+                        <label for="lastName">Last Name</label>
+                        <InputText id="lastName" @bind-Value="registerModel.LastName" class="form-control" placeholder="Doe" readonly="@isGoogleRegistration" />
+                        @if (!isGoogleRegistration)
+                        {
+                            <ValidationMessage For="@(() => registerModel.LastName)" class="validation-message" />
+                        }
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="email">Email</label>
+                    <InputText id="email" @bind-Value="registerModel.Email" class="form-control" placeholder="john.doe@example.com" readonly="@isGoogleRegistration" />
+                    @if (!isGoogleRegistration)
+                    {
+                        <ValidationMessage For="@(() => registerModel.Email)" class="validation-message" />
+                    }
+                </div>
+
+                @if (!isGoogleRegistration)
+                {
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="password">Password</label>
+                            <InputText id="password" @bind-Value="registerModel.Password" type="password" class="form-control" placeholder="••••••••" />
+                            <ValidationMessage For="@(() => registerModel.Password)" class="validation-message" />
+                        </div>
+
+                        <div class="form-group">
+                            <label for="confirmPassword">Confirm Password</label>
+                            <InputText id="confirmPassword" @bind-Value="registerModel.ConfirmPassword" type="password" class="form-control" placeholder="••••••••" />
+                            <ValidationMessage For="@(() => registerModel.ConfirmPassword)" class="validation-message" />
+                        </div>
+                    </div>
+                }
+
+                <div class="form-group">
+                    <label for="dateOfBirth">Date of Birth</label>
+                    <InputDate id="dateOfBirth" @bind-Value="registerModel.DateOfBirth" class="form-control" />
+                    <small class="date-format-info">You must be at least 13 years old</small>
+                    <ValidationMessage For="@(() => registerModel.DateOfBirth)" class="validation-message" />
+                </div>
+
+                <div class="form-group checkbox-group">
+                    <label class="checkbox-label">
+                        <InputCheckbox @bind-Value="registerModel.AcceptTerms" class="checkbox" />
+                        <span>I accept the <a href="/terms" target="_blank">Terms of Service</a> and <a href="/privacy" target="_blank">Privacy Policy</a></span>
+                    </label>
+                    <ValidationMessage For="@(() => registerModel.AcceptTerms)" class="validation-message" />
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn-register" disabled="@isLoading">
+                        @if (isLoading)
+                        {
+                            <span class="loading-spinner"></span>
+                        }
+                        Create Account
+                    </button>
+                </div>
+            </EditForm>
+
+            @if (!isGoogleRegistration)
+            {
+                <!-- Separador -->
+                <div class="register-divider">
+                    <span>or</span>
+                </div>
+
+                <!-- Registro con Google -->
+                <div class="google-register-section">
+                    <button @onclick="HandleGoogleRegister" class="btn-google" disabled="@isLoading">
+                        <svg class="google-icon" viewBox="0 0 24 24">
+                            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                        </svg>
+                        Sign up with Google
+                    </button>
+                </div>
+            }
+        </div>
+
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="error-message">
+                @errorMessage
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(successMessage))
+        {
+            <div class="success-message">
+                @successMessage
+            </div>
+        }
+
+        <div class="register-footer">
+            <p>Already have an account? <a href="/login@(BuildQueryString())">Sign in</a></p>
+        </div>
+    </div>
+</div>
+
+<style>
+    .register-container {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        padding: 20px;
+    }
+
+    .register-card {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+        width: 100%;
+        max-width: 500px;
+        padding: 40px;
+        animation: slideUp 0.5s ease-out;
+    }
+
+    @@keyframes slideUp {
+        from {
+            opacity: 0;
+            transform: translateY(30px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .register-header {
+        text-align: center;
+        margin-bottom: 30px;
+    }
+
+    .register-header h1 {
+        color: #333;
+        font-size: 28px;
+        font-weight: 700;
+        margin: 0 0 8px 0;
+    }
+
+    .register-header p {
+        color: #666;
+        font-size: 16px;
+        margin: 0;
+    }
+
+    .register-form-container {
+        margin-bottom: 20px;
+    }
+
+    .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 15px;
+    }
+
+    .form-group {
+        margin-bottom: 20px;
+    }
+
+    .form-group label {
+        display: block;
+        margin-bottom: 6px;
+        color: #333;
+        font-weight: 500;
+        font-size: 14px;
+    }
+
+    .form-control {
+        width: 100%;
+        padding: 12px 16px;
+        border: 2px solid #e1e5e9;
+        border-radius: 8px;
+        font-size: 16px;
+        transition: border-color 0.3s ease, box-shadow 0.3s ease;
+        box-sizing: border-box;
+    }
+
+    .form-control:focus {
+        outline: none;
+        border-color: #4facfe;
+        box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.1);
+    }
+
+    .checkbox-group {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    .checkbox-label {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        font-size: 14px;
+        color: #666;
+        line-height: 1.4;
+        cursor: pointer;
+        margin: 0;
+    }
+
+    .checkbox {
+        margin: 0;
+        margin-top: 2px;
+        transform: scale(1.2);
+    }
+
+    .checkbox-label a {
+        color: #4facfe;
+        text-decoration: none;
+    }
+
+    .checkbox-label a:hover {
+        text-decoration: underline;
+    }
+
+    .form-actions {
+        margin-top: 24px;
+    }
+
+    .btn-register {
+        width: 100%;
+        padding: 14px 20px;
+        background: #4facfe;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+    }
+
+    .btn-register:hover:not(:disabled) {
+        background: #3d8bfe;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(79, 172, 254, 0.3);
+    }
+
+    .btn-register:disabled {
+        opacity: 0.7;
+        cursor: not-allowed;
+        transform: none;
+    }
+
+    .loading-spinner {
+        width: 16px;
+        height: 16px;
+        border: 2px solid transparent;
+        border-top: 2px solid white;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    @@keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    .register-divider {
+        margin: 24px 0;
+        position: relative;
+        text-align: center;
+    }
+
+    .register-divider::before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 0;
+        right: 0;
+        height: 1px;
+        background: #e1e5e9;
+    }
+
+    .register-divider span {
+        background: white;
+        padding: 0 16px;
+        color: #666;
+        font-size: 14px;
+        position: relative;
+    }
+
+    .btn-google {
+        width: 100%;
+        padding: 12px 20px;
+        background: white;
+        border: 2px solid #e1e5e9;
+        border-radius: 8px;
+        font-size: 16px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        color: #333;
+    }
+
+    .btn-google:hover:not(:disabled) {
+        border-color: #ddd;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        transform: translateY(-1px);
+    }
+
+    .btn-google:disabled {
+        opacity: 0.7;
+        cursor: not-allowed;
+        transform: none;
+    }
+
+    .google-icon {
+        width: 20px;
+        height: 20px;
+    }
+
+    .google-badge {
+        background: #f0f9ff;
+        border: 1px solid #bfdbfe;
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: #1e40af;
+        font-size: 14px;
+        font-weight: 500;
+    }
+
+    .google-icon-small {
+        width: 18px;
+        height: 18px;
+        flex-shrink: 0;
+    }
+
+    .form-control[readonly] {
+        background-color: #f9fafb;
+        cursor: not-allowed;
+        color: #6b7280;
+    }
+
+    .error-message {
+        background: #fee;
+        color: #c53030;
+        padding: 12px 16px;
+        border-radius: 8px;
+        border: 1px solid #fed7d7;
+        margin-top: 16px;
+        font-size: 14px;
+    }
+
+    .success-message {
+        background: #f0fff4;
+        color: #22543d;
+        padding: 12px 16px;
+        border-radius: 8px;
+        border: 1px solid #c6f6d5;
+        margin-top: 16px;
+        font-size: 14px;
+    }
+
+    .validation-summary {
+        background: #fee;
+        color: #c53030;
+        padding: 12px 16px;
+        border-radius: 8px;
+        border: 1px solid #fed7d7;
+        margin-bottom: 16px;
+        font-size: 14px;
+    }
+
+        .validation-summary ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+
+    .validation-message {
+        color: #c53030;
+        font-size: 12px;
+        margin-top: 4px;
+        display: block;
+    }
+
+    .date-format-info {
+        color: #666;
+        font-size: 11px;
+        margin-top: 2px;
+        display: block;
+        font-style: italic;
+    }
+
+    .register-footer {
+        text-align: center;
+        margin-top: 24px;
+        padding-top: 24px;
+        border-top: 1px solid #e1e5e9;
+    }
+
+    .register-footer p {
+        color: #666;
+        font-size: 14px;
+        margin: 0;
+    }
+
+    .register-footer a {
+        color: #4facfe;
+        text-decoration: none;
+        font-weight: 500;
+    }
+
+    .register-footer a:hover {
+        text-decoration: underline;
+    }
+
+    /* Responsive Design */
+    @@media (max-width: 600px) {
+        .form-row {
+            grid-template-columns: 1fr;
+            gap: 0;
+        }
+    }
+
+    @@media (max-width: 480px) {
+        .register-container {
+            padding: 15px;
+        }
+
+        .register-card {
+            padding: 30px 25px;
+        }
+
+        .register-header h1 {
+            font-size: 24px;
+        }
+
+        .form-control {
+            font-size: 16px; /* Prevents zoom on iOS */
+        }
+    }
+</style>
+
+@code {
+    [Parameter] [SupplyParameterFromQuery] public string? client_id { get; set; }
+    [Parameter] [SupplyParameterFromQuery] public string? redirect_uri { get; set; }
+    [Parameter] [SupplyParameterFromQuery] public string? response_type { get; set; }
+    [Parameter] [SupplyParameterFromQuery] public string? scope { get; set; }
+    [Parameter] [SupplyParameterFromQuery] public string? state { get; set; }
+    [Parameter] [SupplyParameterFromQuery] public string? code_challenge { get; set; }
+    [Parameter] [SupplyParameterFromQuery] public string? code_challenge_method { get; set; }
+    [Parameter] [SupplyParameterFromQuery] public string? google_code { get; set; }
+    [Parameter] [SupplyParameterFromQuery] public string? error { get; set; }
+
+    private RegisterModel registerModel = new();
+    private bool isLoading = false;
+    private string errorMessage = string.Empty;
+    private string successMessage = string.Empty;
+    private bool isGoogleRegistration = false;
+    private string? googleId = null;
+    private string? profilePicture = null;
+    private string? googleIdToken = null;  // Store Google's id_token for validation
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Check if we're returning from Google OAuth with state containing returnUrl
+        if (!string.IsNullOrEmpty(google_code) && !string.IsNullOrEmpty(state))
+        {
+            try
+            {
+                // Decode state to get returnUrl with OIDC parameters
+                var decodedBytes = Convert.FromBase64String(state);
+                var returnUrl = System.Text.Encoding.UTF8.GetString(decodedBytes);
+
+                Console.WriteLine($"[DEBUG] Decoded returnUrl from state: {returnUrl}");
+
+                // Extract OIDC parameters from returnUrl
+                var uri = new Uri(returnUrl, UriKind.Absolute);
+                var queryParams = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
+
+                if (queryParams.ContainsKey("client_id"))
+                    client_id = queryParams["client_id"].ToString();
+                if (queryParams.ContainsKey("redirect_uri"))
+                    redirect_uri = queryParams["redirect_uri"].ToString();
+                if (queryParams.ContainsKey("response_type"))
+                    response_type = queryParams["response_type"].ToString();
+                if (queryParams.ContainsKey("scope"))
+                    scope = queryParams["scope"].ToString();
+                if (queryParams.ContainsKey("state"))
+                    this.state = queryParams["state"].ToString();
+                if (queryParams.ContainsKey("code_challenge"))
+                    code_challenge = queryParams["code_challenge"].ToString();
+                if (queryParams.ContainsKey("code_challenge_method"))
+                    code_challenge_method = queryParams["code_challenge_method"].ToString();
+
+                Console.WriteLine($"[DEBUG] Restored OIDC parameters - client_id: {client_id}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] Failed to decode state: {ex.Message}");
+            }
+        }
+
+        // Check if we're returning from Google OAuth
+        if (!string.IsNullOrEmpty(google_code))
+        {
+            await HandleGoogleCallback(google_code);
+        }
+    }
+
+    private async Task HandleRegister()
+    {
+        try
+        {
+            isLoading = true;
+            errorMessage = string.Empty;
+            successMessage = string.Empty;
+
+            if (isGoogleRegistration && !string.IsNullOrEmpty(googleIdToken))
+            {
+                // Validate Google registration fields manually
+                if (registerModel.DateOfBirth == default)
+                {
+                    errorMessage = "Date of birth is required";
+                    return;
+                }
+
+                if (!registerModel.AcceptTerms)
+                {
+                    errorMessage = "You must accept the terms and conditions";
+                    return;
+                }
+
+                // Register with Google using form submission (not AJAX) to establish cookie
+                var returnUrlToSend = string.IsNullOrEmpty(client_id) ? null : BuildReturnUrl("/register");
+                Console.WriteLine($"[DEBUG] Register - client_id: {client_id}, returnUrl: {returnUrlToSend}");
+
+                // Use form submission to ensure cookies are set properly
+                // The backend will SignInAsync and redirect back to the app
+                var formData = new
+                {
+                    idToken = googleIdToken,
+                    dateOfBirth = registerModel.DateOfBirth.ToString("yyyy-MM-dd"),
+                    acceptTerms = registerModel.AcceptTerms.ToString().ToLower(),
+                    returnUrl = returnUrlToSend ?? ""
+                };
+
+                Console.WriteLine($"[DEBUG] Submitting Google registration form...");
+                await JSRuntime.InvokeVoidAsync("submitGoogleRegisterForm", formData);
+
+                // The page will redirect automatically after form submission
+                return;
+            }
+            else
+            {
+                // Manual registration with email/password
+                // Use form submission (same as Google) to ensure cookies are set properly and auto-login works
+                var returnUrlToSend = string.IsNullOrEmpty(client_id) ? null : BuildReturnUrl("/register");
+                Console.WriteLine($"[DEBUG] Manual Register - client_id: {client_id}, returnUrl: {returnUrlToSend}");
+
+                var formData = new
+                {
+                    firstName = registerModel.FirstName,
+                    lastName = registerModel.LastName,
+                    email = registerModel.Email,
+                    password = registerModel.Password,
+                    confirmPassword = registerModel.ConfirmPassword,
+                    dateOfBirth = registerModel.DateOfBirth.ToString("yyyy-MM-dd"),
+                    acceptTerms = registerModel.AcceptTerms.ToString().ToLower(),
+                    returnUrl = returnUrlToSend ?? ""
+                };
+
+                Console.WriteLine($"[DEBUG] Submitting manual registration form...");
+                await JSRuntime.InvokeVoidAsync("submitManualRegisterForm", formData);
+
+                // The page will redirect automatically after form submission
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = "An unexpected error occurred. Please try again.";
+            Console.WriteLine($"Register error: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task HandleGoogleCallback(string code)
+    {
+        try
+        {
+            isLoading = true;
+            errorMessage = string.Empty;
+
+            Console.WriteLine($"[DEBUG] HandleGoogleCallback called with code: {code.Substring(0, 10)}...");
+
+            // Call backend to exchange code for user info
+            var request = new { authorizationCode = code };
+            var response = await Http.PostAsJsonAsync("https://localhost:5000/api/auth/google-userinfo", request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var userInfo = await response.Content.ReadFromJsonAsync<GoogleUserInfoResponse>();
+                if (userInfo != null && userInfo.success)
+                {
+                    // Pre-fill form with Google data
+                    isGoogleRegistration = true;
+                    googleId = userInfo.googleId;
+                    googleIdToken = userInfo.idToken;  // IMPORTANT: Store id_token for validation
+                    registerModel.Email = userInfo.email ?? "";
+                    registerModel.FirstName = userInfo.firstName ?? "";
+                    registerModel.LastName = userInfo.lastName ?? "";
+                    profilePicture = userInfo.profilePicture;
+
+                    successMessage = $"Connected with Google as {userInfo.email}. Please complete your registration below.";
+                }
+            }
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                errorMessage = $"Google authentication failed: {errorContent}";
+                Console.WriteLine($"[ERROR] Google callback failed: {errorContent}");
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = "Failed to retrieve Google account information. Please try again.";
+            Console.WriteLine($"[ERROR] HandleGoogleCallback exception: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task HandleGoogleRegister()
+    {
+        try
+        {
+            isLoading = true;
+            errorMessage = string.Empty;
+
+            // Build Google OAuth URL for registration
+            var clientId = "722037863801-faaq5m9d3o5s0fiqqti0sd2t4hg2co6f.apps.googleusercontent.com";
+            var redirectUri = "https://localhost:5000/api/auth/google-register-callback";
+            var scope = "openid profile email";
+
+            // Save returnUrl in state if there are OIDC parameters
+            var returnUrl = !string.IsNullOrEmpty(client_id) ? BuildReturnUrl("/register") : null;
+            var state = !string.IsNullOrEmpty(returnUrl)
+                ? Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(returnUrl))
+                : Guid.NewGuid().ToString();
+
+            var googleAuthUrl = $"https://accounts.google.com/o/oauth2/v2/auth?" +
+                $"client_id={Uri.EscapeDataString(clientId)}&" +
+                $"redirect_uri={Uri.EscapeDataString(redirectUri)}&" +
+                $"response_type=code&" +
+                $"scope={Uri.EscapeDataString(scope)}&" +
+                $"state={Uri.EscapeDataString(state)}&" +
+                $"access_type=offline";
+
+            await JSRuntime.InvokeVoidAsync("open", googleAuthUrl, "_self");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = "An error occurred during Google registration. Please try again.";
+            Console.WriteLine($"Google register error: {ex.Message}");
+            isLoading = false;
+        }
+    }
+
+    private string BuildReturnUrl(string basePath)
+    {
+        var queryParams = new List<string>();
+
+        if (!string.IsNullOrEmpty(client_id))
+            queryParams.Add($"client_id={Uri.EscapeDataString(client_id)}");
+        if (!string.IsNullOrEmpty(redirect_uri))
+            queryParams.Add($"redirect_uri={Uri.EscapeDataString(redirect_uri)}");
+        if (!string.IsNullOrEmpty(response_type))
+            queryParams.Add($"response_type={Uri.EscapeDataString(response_type)}");
+        if (!string.IsNullOrEmpty(scope))
+            queryParams.Add($"scope={Uri.EscapeDataString(scope)}");
+        if (!string.IsNullOrEmpty(state))
+            queryParams.Add($"state={Uri.EscapeDataString(state)}");
+        if (!string.IsNullOrEmpty(code_challenge))
+            queryParams.Add($"code_challenge={Uri.EscapeDataString(code_challenge)}");
+        if (!string.IsNullOrEmpty(code_challenge_method))
+            queryParams.Add($"code_challenge_method={Uri.EscapeDataString(code_challenge_method)}");
+
+        var baseUrl = Navigation.ToAbsoluteUri(basePath).ToString();
+        return queryParams.Any() ? $"{baseUrl}?{string.Join("&", queryParams)}" : baseUrl;
+    }
+
+    private string BuildQueryString()
+    {
+        var queryParams = new List<string>();
+
+        if (!string.IsNullOrEmpty(client_id))
+            queryParams.Add($"client_id={Uri.EscapeDataString(client_id)}");
+        if (!string.IsNullOrEmpty(redirect_uri))
+            queryParams.Add($"redirect_uri={Uri.EscapeDataString(redirect_uri)}");
+        if (!string.IsNullOrEmpty(response_type))
+            queryParams.Add($"response_type={Uri.EscapeDataString(response_type)}");
+        if (!string.IsNullOrEmpty(scope))
+            queryParams.Add($"scope={Uri.EscapeDataString(scope)}");
+        if (!string.IsNullOrEmpty(state))
+            queryParams.Add($"state={Uri.EscapeDataString(state)}");
+        if (!string.IsNullOrEmpty(code_challenge))
+            queryParams.Add($"code_challenge={Uri.EscapeDataString(code_challenge)}");
+        if (!string.IsNullOrEmpty(code_challenge_method))
+            queryParams.Add($"code_challenge_method={Uri.EscapeDataString(code_challenge_method)}");
+
+        return queryParams.Any() ? $"?{string.Join("&", queryParams)}" : string.Empty;
+    }
+
+    public class RegisterModel
+    {
+        [Required(ErrorMessage = "First name is required")]
+        [StringLength(50, ErrorMessage = "First name cannot exceed 50 characters")]
+        public string FirstName { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Last name is required")]
+        [StringLength(50, ErrorMessage = "Last name cannot exceed 50 characters")]
+        public string LastName { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Email is required")]
+        [EmailAddress(ErrorMessage = "Invalid email format")]
+        public string Email { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Password is required")]
+        [MinLength(6, ErrorMessage = "Password must be at least 6 characters")]
+        [RegularExpression(@"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).*$",
+            ErrorMessage = "Password must contain at least one uppercase letter, one lowercase letter, and one number")]
+        public string Password { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Please confirm your password")]
+        [Compare("Password", ErrorMessage = "Passwords do not match")]
+        public string ConfirmPassword { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Date of birth is required")]
+        [DataType(DataType.Date)]
+        public DateTime DateOfBirth { get; set; } = DateTime.Today.AddYears(-18);
+
+        [Required(ErrorMessage = "You must accept the terms and conditions")]
+        [Range(typeof(bool), "true", "true", ErrorMessage = "You must accept the terms and conditions")]
+        public bool AcceptTerms { get; set; }
+    }
+
+    public class GoogleUserInfoResponse
+    {
+        public bool success { get; set; }
+        public string? googleId { get; set; }
+        public string? email { get; set; }
+        public string? firstName { get; set; }
+        public string? lastName { get; set; }
+        public string? profilePicture { get; set; }
+        public string? idToken { get; set; }  // Google's signed id_token
+    }
+
+    public class RegisterResponse
+    {
+        public bool success { get; set; }
+        public string? redirectUrl { get; set; }
+    }
+}

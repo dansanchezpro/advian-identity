@@ -1,35 +1,28 @@
 using Microsoft.IdentityModel.Tokens;
 using System.Security.Cryptography;
 
-namespace IdentityServer.Api.Services;
-
-public interface IRsaKeyService
-{
-    RsaSecurityKey GetRsaSecurityKey();
-    SigningCredentials GetSigningCredentials();
-    JsonWebKey GetJsonWebKey();
-}
+namespace IdentityServer.Core.Services;
 
 public class RsaKeyService : IRsaKeyService, IDisposable
 {
     private readonly RSA _rsa;
     private readonly RsaSecurityKey _rsaSecurityKey;
-    
+
     public RsaKeyService()
     {
         _rsa = RSA.Create(2048);
         _rsaSecurityKey = new RsaSecurityKey(_rsa) { KeyId = "default-rsa-key" };
     }
-    
+
     public RsaSecurityKey GetRsaSecurityKey() => _rsaSecurityKey;
-    
-    public SigningCredentials GetSigningCredentials() => 
+
+    public SigningCredentials GetSigningCredentials() =>
         new SigningCredentials(_rsaSecurityKey, SecurityAlgorithms.RsaSha256);
-    
+
     public JsonWebKey GetJsonWebKey()
     {
         var parameters = _rsa.ExportParameters(false);
-        
+
         return new JsonWebKey
         {
             Kty = "RSA",
@@ -40,7 +33,7 @@ public class RsaKeyService : IRsaKeyService, IDisposable
             E = Base64UrlEncode(parameters.Exponent!)
         };
     }
-    
+
     private static string Base64UrlEncode(byte[] input)
     {
         return Convert.ToBase64String(input)
@@ -48,7 +41,7 @@ public class RsaKeyService : IRsaKeyService, IDisposable
             .Replace('/', '_')
             .Replace("=", "");
     }
-    
+
     public void Dispose()
     {
         _rsa?.Dispose();

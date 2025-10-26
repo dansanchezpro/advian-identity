@@ -1,4 +1,4 @@
-using IdentityServer.Api.Services;
+using IdentityServer.Core.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace IdentityServer.Api.Controllers;

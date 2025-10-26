@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using IdentityServer.Api.Data;
+using IdentityServer.Core.Data;
 using Microsoft.EntityFrameworkCore;
 
 namespace IdentityServer.Api.Controllers;

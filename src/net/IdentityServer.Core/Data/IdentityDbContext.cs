@@ -1,8 +1,8 @@
 using Microsoft.EntityFrameworkCore;
-using IdentityServer.Api.Models;
+using IdentityServer.Core.Models;
 using System.Text.Json;
 
-namespace IdentityServer.Api.Data;
+namespace IdentityServer.Core.Data;
 
 public class IdentityDbContext : DbContext
 {

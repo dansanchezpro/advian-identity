@@ -1,25 +1,14 @@
-using IdentityServer.Api.Models;
-using IdentityServer.Api.Data;
+using IdentityServer.Core.Models;
+using IdentityServer.Core.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Extensions.Configuration;
 
-namespace IdentityServer.Api.Services;
-
-public interface ITokenService
-{
-    Task<string> GenerateAuthorizationCodeAsync(string clientId, int userId, List<string> scopes, string redirectUri, string? codeChallenge = null, string? codeChallengeMethod = null);
-    Task<(bool IsValid, AuthorizationCode? Code)> ValidateAuthorizationCodeAsync(string code, string clientId, string? codeVerifier = null);
-    Task<string> GenerateAccessTokenAsync(string clientId, int userId, List<string> scopes);
-    Task<bool> ValidateAccessTokenAsync(string token);
-    string GenerateJwtToken(int userId, string email, string firstName, string lastName, List<string> scopes, string issuer, string audience, int lifetimeMinutes = 60);
-    Task<string> GenerateRefreshTokenAsync(string clientId, int userId, List<string> scopes, string? jwtId = null);
-    Task<(bool IsValid, RefreshToken? Token)> ValidateRefreshTokenAsync(string token, string clientId);
-    Task RevokeRefreshTokenAsync(string token);
-}
+namespace IdentityServer.Core.Services;
 
 public class TokenService : ITokenService
 {
@@ -124,7 +113,7 @@ public class TokenService : ITokenService
             new(JwtRegisteredClaimNames.Exp, new DateTimeOffset(expires).ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64),
             new(JwtRegisteredClaimNames.Nbf, new DateTimeOffset(now).ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-            
+
             // Additional claims for Blazor OIDC compatibility
             new("email", email),
             new("given_name", firstName),
@@ -148,7 +137,7 @@ public class TokenService : ITokenService
             Audience = audience,
             SigningCredentials = credentials
         };
-        
+
         var tokenHandler = new JwtSecurityTokenHandler();
         var token = tokenHandler.CreateJwtSecurityToken(tokenDescriptor);
         token.Header["kid"] = "default-rsa-key";
@@ -159,7 +148,7 @@ public class TokenService : ITokenService
     public async Task<string> GenerateRefreshTokenAsync(string clientId, int userId, List<string> scopes, string? jwtId = null)
     {
         var token = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N"); // 64 chars
-        
+
         var client = await _context.Clients.FirstOrDefaultAsync(c => c.ClientId == clientId);
         var refreshTokenLifetime = client?.RefreshTokenLifetime ?? 2592000; // 30 days default
 

@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using IdentityServer.Api.Data;
-using IdentityServer.Api.Services;
-using IdentityServer.Api.Models;
+using IdentityServer.Core.Data;
+using IdentityServer.Core.Services;
+using IdentityServer.Core.Models;
 using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;

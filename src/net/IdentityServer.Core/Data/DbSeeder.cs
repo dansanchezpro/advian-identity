@@ -1,9 +1,9 @@
-using IdentityServer.Api.Models;
+using IdentityServer.Core.Models;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace IdentityServer.Api.Data;
+namespace IdentityServer.Core.Data;
 
 public static class DbSeeder
 {
@@ -109,12 +109,12 @@ public static class DbSeeder
                     ClientId = "mobileapp",
                     ClientSecret = "", // Public client - no secret required for mobile
                     ClientName = "Mobile Application",
-                    RedirectUris = new List<string> { 
+                    RedirectUris = new List<string> {
                         "mobileapp://auth",
                         "exp://192.168.1.100:8081/--/auth", // Expo development
                         "exp://localhost:8081/--/auth"
                     },
-                    PostLogoutRedirectUris = new List<string> { 
+                    PostLogoutRedirectUris = new List<string> {
                         "mobileapp://logout",
                         "exp://192.168.1.100:8081/--/logout",
                         "exp://localhost:8081/--/logout"
@@ -133,11 +133,11 @@ public static class DbSeeder
                     ClientId = "desktopapp",
                     ClientSecret = "", // Public client - no secret required for desktop
                     ClientName = "Desktop Application",
-                    RedirectUris = new List<string> { 
+                    RedirectUris = new List<string> {
                         "http://localhost:8080/callback",
                         "desktopapp://auth"
                     },
-                    PostLogoutRedirectUris = new List<string> { 
+                    PostLogoutRedirectUris = new List<string> {
                         "http://localhost:8080/",
                         "desktopapp://logout"
                     },

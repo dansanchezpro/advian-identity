@@ -1,5 +1,5 @@
-using IdentityServer.Api.Data;
-using IdentityServer.Api.Services;
+using IdentityServer.Core.Data;
+using IdentityServer.Core.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.Cookies;
 

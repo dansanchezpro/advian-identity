@@ -1,21 +1,10 @@
-using IdentityServer.Api.Models;
-using IdentityServer.Api.Data;
+using IdentityServer.Core.Models;
+using IdentityServer.Core.Data;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace IdentityServer.Api.Services;
-
-public interface IUserService
-{
-    Task<User?> ValidateCredentialsAsync(string email, string password);
-    Task<User?> FindByEmailAsync(string email);
-    Task<User?> FindByIdAsync(int id);
-    Task<User?> FindByExternalLoginAsync(string provider, string providerKey);
-    Task<User> CreateUserAsync(string email, string firstName, string lastName, string? password = null);
-    Task<User> RegisterUserAsync(string email, string firstName, string lastName, string password, DateTime? dateOfBirth = null);
-    Task AddExternalLoginAsync(int userId, string provider, string providerKey, string displayName);
-}
+namespace IdentityServer.Core.Services;
 
 public class UserService : IUserService
 {

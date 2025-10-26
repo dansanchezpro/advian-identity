@@ -1,4 +1,4 @@
-namespace IdentityServer.Api.Models;
+namespace IdentityServer.Core.Models;
 
 public class Client
 {

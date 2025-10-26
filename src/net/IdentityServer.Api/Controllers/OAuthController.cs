@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
-using IdentityServer.Api.Services;
-using IdentityServer.Api.Data;
-using IdentityServer.Api.Models;
+using IdentityServer.Core.Services;
+using IdentityServer.Core.Data;
+using IdentityServer.Core.Models;
 using Microsoft.EntityFrameworkCore;
 using System.Text;
 using System.Security.Cryptography;

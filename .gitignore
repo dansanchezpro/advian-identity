@@ -485,3 +485,6 @@ $RECYCLE.BIN/
 
 # Claude Code CLI configuration (personal settings)
 .claude/
+
+#Secretos en archivo de configuración
+appsettings.*.json

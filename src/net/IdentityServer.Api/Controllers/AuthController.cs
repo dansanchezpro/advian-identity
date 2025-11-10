@@ -747,7 +747,7 @@ public class AuthController : ControllerBase
 
     // New endpoint: Complete registration with Google data (Step 2 - creates account)
     [HttpPost("register-with-google")]
-    public async Task<IActionResult> RegisterWithGoogle([FromForm] RegisterWithGoogleRequest request)
+    public async Task<IActionResult> RegisterWithGoogle([FromBody] RegisterWithGoogleRequest request)
     {
         try
         {
@@ -756,7 +756,7 @@ public class AuthController : ControllerBase
             // Validate required fields
             if (string.IsNullOrEmpty(request.IdToken) || request.DateOfBirth == default || !request.AcceptTerms)
             {
-                return BadRequest(new { error = "invalid_request", error_description = "All fields are required" });
+                return Ok(new { success = false, error = "All fields are required" });
             }
 
             // SECURITY: Validate the id_token directly with Google's signing keys
@@ -766,14 +766,14 @@ public class AuthController : ControllerBase
                 googleUserInfo = await ValidateGoogleIdToken(request.IdToken);
                 if (googleUserInfo == null)
                 {
-                    return BadRequest(new { error = "invalid_token", error_description = "Invalid or expired Google ID token" });
+                    return Ok(new { success = false, error = "Invalid or expired Google ID token" });
                 }
                 Console.WriteLine($"[DEBUG] ID token validated successfully for user: {googleUserInfo.Email}");
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[ERROR] ID token validation failed: {ex.Message}");
-                return BadRequest(new { error = "invalid_token", error_description = "Failed to validate Google ID token" });
+                return Ok(new { success = false, error = "Failed to validate Google ID token" });
             }
 
             // Extract verified data from the validated id_token
@@ -791,7 +791,7 @@ public class AuthController : ControllerBase
 
             if (existingUser != null)
             {
-                return BadRequest(new { error = "user_already_exists", error_description = "User is already registered" });
+                return Ok(new { success = false, error = "User is already registered" });
             }
 
             // Validate age (minimum 13 years old)
@@ -801,7 +801,7 @@ public class AuthController : ControllerBase
 
             if (age < 13)
             {
-                return BadRequest(new { error = "age_restriction", error_description = "You must be at least 13 years old to register" });
+                return Ok(new { success = false, error = "You must be at least 13 years old to register" });
             }
 
             // Create new user with VALIDATED Google data
@@ -843,43 +843,23 @@ public class AuthController : ControllerBase
 
             Console.WriteLine($"[DEBUG] User auto-logged in after Google registration");
 
-            // If there's a returnUrl with OIDC parameters, generate authorization code
-            if (!string.IsNullOrEmpty(request.ReturnUrl))
+            // Return JSON response (the UI will handle the redirect)
+            return Ok(new
             {
-                var uri = new Uri(request.ReturnUrl, UriKind.Absolute);
-                var queryParams = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
-
-                if (queryParams.ContainsKey("client_id") && queryParams.ContainsKey("redirect_uri"))
+                success = true,
+                user = new
                 {
-                    var clientId = queryParams["client_id"].ToString();
-                    var redirectUri = queryParams["redirect_uri"].ToString();
-                    var scope = queryParams.ContainsKey("scope") ? queryParams["scope"].ToString() : "openid";
-                    var state = queryParams.ContainsKey("state") ? queryParams["state"].ToString() : null;
-                    var codeChallenge = queryParams.ContainsKey("code_challenge") ? queryParams["code_challenge"].ToString() : null;
-                    var codeChallengeMethod = queryParams.ContainsKey("code_challenge_method") ? queryParams["code_challenge_method"].ToString() : null;
-
-                    var authCode = await _tokenService.GenerateAuthorizationCodeAsync(
-                        clientId, user.Id, scope.Split(' ').ToList(), redirectUri,
-                        codeChallenge, codeChallengeMethod);
-
-                    var finalRedirectUrl = $"{redirectUri}?code={authCode}";
-                    if (!string.IsNullOrEmpty(state))
-                        finalRedirectUrl += $"&state={Uri.EscapeDataString(state)}";
-
-                    Console.WriteLine($"[DEBUG] Redirecting to app after Google registration: {finalRedirectUrl}");
-                    return Redirect(finalRedirectUrl);
+                    id = user.Id,
+                    email = user.Email,
+                    firstName = user.FirstName,
+                    lastName = user.LastName
                 }
-            }
-
-            // No OIDC flow - redirect to dashboard or home
-            var identityServerUrl = _configuration["IdentityServer:LoginUrl"] ?? "https://localhost:7000";
-            Console.WriteLine($"[DEBUG] Redirecting to dashboard after Google registration");
-            return Redirect($"{identityServerUrl}/dashboard");
+            });
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[ERROR] RegisterWithGoogle failed: {ex.Message}");
-            return StatusCode(500, new { error = "internal_error", error_description = "An error occurred during registration" });
+            return Ok(new { success = false, error = "An error occurred during registration" });
         }
     }
 

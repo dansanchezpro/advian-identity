@@ -1,9 +1,11 @@
 @page "/login"
 @using System.ComponentModel.DataAnnotations
 @using System.Text.Json
+@using IdentityServer.Web.Configuration
 @inject HttpClient Http
 @inject IJSRuntime JSRuntime
 @inject NavigationManager Navigation
+@inject IdentityServerSettings Settings
 
 
 <PageTitle>Sign In - Identity Server</PageTitle>
@@ -435,28 +437,45 @@
 
         try
         {
-            await JSRuntime.InvokeVoidAsync("debugLog", $"HandleLogin started - api_callback: {api_callback}");
+            Console.WriteLine($"[DEBUG] HandleLogin started - authenticating user");
 
-            // Always use OIDC form submission for consistency
-            await HandleOidcFormSubmission();
+            // Step 1: Authenticate the user and create session cookie
+            var loginRequest = new { Email = loginModel.Email, Password = loginModel.Password };
+            var loginResponse = await JSRuntime.InvokeAsync<LoginResponse>(
+                "fetchWithCredentials",
+                $"{Settings.ApiUrl}/api/auth/login",
+                "POST",
+                loginRequest
+            );
+
+            if (!loginResponse.Success)
+            {
+                errorMessage = loginResponse.Error ?? "Invalid email or password";
+                isLoading = false;
+                return;
+            }
+
+            Console.WriteLine($"[DEBUG] Authentication successful - session cookie created");
+
+            // Step 2: Redirect back to authorization endpoint
+            // The backend now has the session cookie and will generate the code automatically
+            var authUrl = BuildAuthorizationUrl();
+            Console.WriteLine($"[DEBUG] Redirecting to authorization endpoint: {authUrl}");
+
+            Navigation.NavigateTo(authUrl, forceLoad: true);
         }
         catch (Exception ex)
         {
-            await JSRuntime.InvokeVoidAsync("debugLog", $"Exception in HandleLogin: {ex.Message}");
+            Console.WriteLine($"[ERROR] Exception in HandleLogin: {ex.Message}");
             errorMessage = "An error occurred during login. Please try again.";
             isLoading = false;
         }
     }
 
-    private async Task HandleOidcFormSubmission()
+    private string BuildAuthorizationUrl()
     {
-        await JSRuntime.InvokeVoidAsync("debugLog", "Submitting OIDC form to API via browser navigation...");
-
-        // Build form submission URL with query parameters for GET request first
         var queryParams = new List<string>
         {
-            $"email={Uri.EscapeDataString(loginModel.Email)}",
-            $"password={Uri.EscapeDataString(loginModel.Password)}",
             $"client_id={Uri.EscapeDataString(client_id ?? "")}",
             $"redirect_uri={Uri.EscapeDataString(redirect_uri ?? "")}",
             $"response_type={Uri.EscapeDataString(response_type ?? "code")}",
@@ -470,19 +489,7 @@
         if (!string.IsNullOrEmpty(code_challenge_method))
             queryParams.Add($"code_challenge_method={Uri.EscapeDataString(code_challenge_method)}");
 
-        // Create a direct form submission using JSInterop
-        await JSRuntime.InvokeVoidAsync("submitOidcForm", new
-        {
-            email = loginModel.Email,
-            password = loginModel.Password,
-            client_id = client_id ?? "",
-            redirect_uri = redirect_uri ?? "",
-            response_type = response_type ?? "code",
-            scope = scope ?? "",
-            state = state ?? "",
-            code_challenge = code_challenge ?? "",
-            code_challenge_method = code_challenge_method ?? ""
-        });
+        return $"{Settings.ApiUrl}/api/auth/oidc-login?{string.Join("&", queryParams)}";
     }
 
     private async Task HandleExternalLogin(string provider)
@@ -493,7 +500,7 @@
         try
         {
             var returnUrl = BuildReturnUrl();
-            var externalUrl = $"https://localhost:5000/api/auth/external/{provider.ToLower()}?returnUrl={Uri.EscapeDataString(returnUrl)}";
+            var externalUrl = $"{Settings.ApiUrl}/api/auth/external/{provider.ToLower()}?returnUrl={Uri.EscapeDataString(returnUrl)}";
             await JSRuntime.InvokeVoidAsync("open", externalUrl, "_self");
         }
         catch
@@ -577,5 +584,20 @@
     public class ClientInfo
     {
         public string ClientName { get; set; } = string.Empty;
+    }
+
+    public class LoginResponse
+    {
+        public bool Success { get; set; }
+        public string? Error { get; set; }
+        public UserInfo? User { get; set; }
+    }
+
+    public class UserInfo
+    {
+        public int Id { get; set; }
+        public string Email { get; set; } = string.Empty;
+        public string FirstName { get; set; } = string.Empty;
+        public string LastName { get; set; } = string.Empty;
     }
 }

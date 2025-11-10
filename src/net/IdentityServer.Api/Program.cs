@@ -9,9 +9,18 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 
-// Configure Entity Framework with In-Memory Database
-builder.Services.AddDbContext<IdentityDbContext>(options =>
-    options.UseInMemoryDatabase("IdentityServerDb"));
+// Configure Entity Framework
+if (builder.Environment.IsDevelopment())
+{
+    // Development: Use In-Memory Database for testing
+    builder.Services.AddDbContext<IdentityDbContext>(options => options.UseInMemoryDatabase("IdentityServerDb"));
+}
+else
+{
+    // Production: Use SQL Server from configuration
+    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+    builder.Services.AddDbContext<IdentityDbContext>(options => options.UseSqlServer(connectionString));
+}
 
 // Register services
 builder.Services.AddScoped<IUserService, UserService>();
@@ -20,30 +29,45 @@ builder.Services.AddSingleton<IRsaKeyService, RsaKeyService>();
 
 // Cookie authentication is configured in AddAuthentication section below
 
-// Add CORS - specific configuration for Blazor WebAssembly
+// Add CORS configuration
 builder.Services.AddCors(options =>
 {
-    options.AddDefaultPolicy(policy =>
+    if (builder.Environment.IsDevelopment())
     {
-        policy.WithOrigins(
-                "https://localhost:7001", // SampleApp1
-                "https://localhost:7002", // SampleApp2
-                "https://localhost:7003", // SampleApp3
-                "https://localhost:7000", // Identity UI
-                "https://localhost:6001"  // SampleBack1 API
-              )
-              .AllowAnyMethod()
-              .AllowAnyHeader()
-              .AllowCredentials();
-    });
-    
-    // Add a more permissive policy for development
-    options.AddPolicy("Development", policy =>
+        // Development: Allow specific origins with credentials
+        // NOTE: AllowAnyOrigin() is NOT compatible with AllowCredentials()
+        // so we need to specify origins explicitly
+        options.AddDefaultPolicy(policy =>
+        {
+            policy.WithOrigins(
+                      "https://localhost:7000",  // Identity UI
+                      "http://localhost:7000",
+                      "https://localhost:7001",  // Sample App 1
+                      "http://localhost:7001",
+                      "https://localhost:7002",  // Sample App 2
+                      "http://localhost:7002",
+                      "https://localhost:7003",  // Sample App 3
+                      "http://localhost:7003"
+                  )
+                  .AllowAnyMethod()
+                  .AllowAnyHeader()
+                  .AllowCredentials();  // ← CRITICAL: Permite cookies cross-origin
+        });
+    }
+    else
     {
-        policy.AllowAnyOrigin()
-              .AllowAnyMethod()
-              .AllowAnyHeader();
-    });
+        // Production: Use specific origins from configuration
+        var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+                             ?? Array.Empty<string>();
+
+        options.AddDefaultPolicy(policy =>
+        {
+            policy.WithOrigins(allowedOrigins)
+                  .AllowAnyMethod()
+                  .AllowAnyHeader()
+                  .AllowCredentials();  // ← CRITICAL: Permite cookies cross-origin
+        });
+    }
 });
 
 // Configure external authentication
@@ -61,20 +85,20 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.Cookie.Domain = ".localhost"; // Share cookie across localhost ports
     });
 
-// External OAuth providers are handled manually in AuthController
-// .AddGoogle and .AddMicrosoftAccount middleware removed to avoid conflicts with custom implementation
-
 // Configure JWT settings
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("JWT"));
 builder.Configuration["JWT:SecretKey"] = "MyVerySecretKeyForJWTTokenGeneration123456789";
 
 var app = builder.Build();
 
-// Seed the database
-using (var scope = app.Services.CreateScope())
+// Seed the database only in development
+if (app.Environment.IsDevelopment())
 {
-    var context = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
-    await DbSeeder.SeedAsync(context);
+    using (var scope = app.Services.CreateScope())
+    {
+        var context = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
+        await DbSeeder.SeedAsync(context);
+    }
 }
 
 // Configure the HTTP request pipeline.
@@ -121,20 +145,20 @@ app.Use(async (context, next) =>
     Console.WriteLine($"[RESPONSE] {DateTime.Now:HH:mm:ss.fff} - {method} {path} → Status: {context.Response.StatusCode}");
 });
 
-// Use very permissive CORS for development
-app.UseCors(policy =>
-{
-    policy.AllowAnyOrigin()
-          .AllowAnyMethod()
-          .AllowAnyHeader();
-});
+// Use CORS with the configured policy
+app.UseCors();
 
-// Disable HTTPS redirection for development to avoid certificate issues
- app.UseHttpsRedirection();
+
+app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+// Health check endpoint
+app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }))
+   .WithName("HealthCheck")
+   .WithOpenApi();
 
 app.Run();
 

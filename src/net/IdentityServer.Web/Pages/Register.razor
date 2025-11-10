@@ -1,9 +1,11 @@
 @page "/register"
 @using System.ComponentModel.DataAnnotations
 @using Microsoft.AspNetCore.WebUtilities
+@using IdentityServer.Web.Configuration
 @inject HttpClient Http
 @inject IJSRuntime JSRuntime
 @inject NavigationManager Navigation
+@inject IdentityServerSettings Settings
 
 <PageTitle>Create Account - Identity Server</PageTitle>
 
@@ -590,49 +592,98 @@
                     return;
                 }
 
-                // Register with Google using form submission (not AJAX) to establish cookie
-                var returnUrlToSend = string.IsNullOrEmpty(client_id) ? null : BuildReturnUrl("/register");
-                Console.WriteLine($"[DEBUG] Register - client_id: {client_id}, returnUrl: {returnUrlToSend}");
+                // Register with Google using API
+                Console.WriteLine($"[DEBUG] Google Register - registering user via API");
 
-                // Use form submission to ensure cookies are set properly
-                // The backend will SignInAsync and redirect back to the app
-                var formData = new
+                var googleRegisterRequest = new
                 {
-                    idToken = googleIdToken,
-                    dateOfBirth = registerModel.DateOfBirth.ToString("yyyy-MM-dd"),
-                    acceptTerms = registerModel.AcceptTerms.ToString().ToLower(),
-                    returnUrl = returnUrlToSend ?? ""
+                    IdToken = googleIdToken,
+                    DateOfBirth = registerModel.DateOfBirth,
+                    AcceptTerms = registerModel.AcceptTerms
                 };
 
-                Console.WriteLine($"[DEBUG] Submitting Google registration form...");
-                await JSRuntime.InvokeVoidAsync("submitGoogleRegisterForm", formData);
+                // Call the API to register the user with Google
+                var googleRegisterResponse = await JSRuntime.InvokeAsync<RegisterResponse>(
+                    "fetchWithCredentials",
+                    $"{Settings.ApiUrl}/api/auth/register-with-google",
+                    "POST",
+                    googleRegisterRequest
+                );
 
-                // The page will redirect automatically after form submission
+                if (!googleRegisterResponse.Success)
+                {
+                    errorMessage = googleRegisterResponse.Error ?? "Registration with Google failed. Please try again.";
+                    isLoading = false;
+                    return;
+                }
+
+                Console.WriteLine($"[DEBUG] Google registration successful - session cookie created");
+
+                // Check if this is part of an OIDC flow
+                if (!string.IsNullOrEmpty(client_id) && !string.IsNullOrEmpty(redirect_uri))
+                {
+                    // Redirect to authorization endpoint to get the code
+                    var authUrl = BuildAuthorizationUrl();
+                    Console.WriteLine($"[DEBUG] Redirecting to authorization endpoint: {authUrl}");
+                    Navigation.NavigateTo(authUrl, forceLoad: true);
+                }
+                else
+                {
+                    // No OIDC flow, redirect to dashboard
+                    Console.WriteLine($"[DEBUG] Redirecting to dashboard");
+                    Navigation.NavigateTo("/dashboard", forceLoad: true);
+                }
+
                 return;
             }
             else
             {
                 // Manual registration with email/password
-                // Use form submission (same as Google) to ensure cookies are set properly and auto-login works
-                var returnUrlToSend = string.IsNullOrEmpty(client_id) ? null : BuildReturnUrl("/register");
-                Console.WriteLine($"[DEBUG] Manual Register - client_id: {client_id}, returnUrl: {returnUrlToSend}");
+                Console.WriteLine($"[DEBUG] Manual Register - registering user via API");
 
-                var formData = new
+                var registerRequest = new
                 {
-                    firstName = registerModel.FirstName,
-                    lastName = registerModel.LastName,
-                    email = registerModel.Email,
-                    password = registerModel.Password,
-                    confirmPassword = registerModel.ConfirmPassword,
-                    dateOfBirth = registerModel.DateOfBirth.ToString("yyyy-MM-dd"),
-                    acceptTerms = registerModel.AcceptTerms.ToString().ToLower(),
-                    returnUrl = returnUrlToSend ?? ""
+                    FirstName = registerModel.FirstName,
+                    LastName = registerModel.LastName,
+                    Email = registerModel.Email,
+                    Password = registerModel.Password,
+                    ConfirmPassword = registerModel.ConfirmPassword,
+                    DateOfBirth = registerModel.DateOfBirth,
+                    AcceptTerms = registerModel.AcceptTerms
                 };
 
-                Console.WriteLine($"[DEBUG] Submitting manual registration form...");
-                await JSRuntime.InvokeVoidAsync("submitManualRegisterForm", formData);
+                // Call the API to register the user
+                var registerResponse = await JSRuntime.InvokeAsync<RegisterResponse>(
+                    "fetchWithCredentials",
+                    $"{Settings.ApiUrl}/api/auth/register",
+                    "POST",
+                    registerRequest
+                );
 
-                // The page will redirect automatically after form submission
+                if (!registerResponse.Success)
+                {
+                    errorMessage = registerResponse.Error ?? "Registration failed. Please try again.";
+                    isLoading = false;
+                    return;
+                }
+
+                Console.WriteLine($"[DEBUG] Registration successful - session cookie created");
+
+                // Check if this is part of an OIDC flow
+                if (!string.IsNullOrEmpty(client_id) && !string.IsNullOrEmpty(redirect_uri))
+                {
+                    // Redirect to authorization endpoint to get the code
+                    var authUrl = BuildAuthorizationUrl();
+                    Console.WriteLine($"[DEBUG] Redirecting to authorization endpoint: {authUrl}");
+                    Navigation.NavigateTo(authUrl, forceLoad: true);
+                }
+                else
+                {
+                    // No OIDC flow, redirect to dashboard
+                    Console.WriteLine($"[DEBUG] Redirecting to dashboard");
+                    Navigation.NavigateTo("/dashboard", forceLoad: true);
+                }
+
                 return;
             }
         }
@@ -731,6 +782,26 @@
         }
     }
 
+    private string BuildAuthorizationUrl()
+    {
+        var queryParams = new List<string>
+        {
+            $"client_id={Uri.EscapeDataString(client_id ?? "")}",
+            $"redirect_uri={Uri.EscapeDataString(redirect_uri ?? "")}",
+            $"response_type={Uri.EscapeDataString(response_type ?? "code")}",
+            $"scope={Uri.EscapeDataString(scope ?? "")}"
+        };
+
+        if (!string.IsNullOrEmpty(state))
+            queryParams.Add($"state={Uri.EscapeDataString(state)}");
+        if (!string.IsNullOrEmpty(code_challenge))
+            queryParams.Add($"code_challenge={Uri.EscapeDataString(code_challenge)}");
+        if (!string.IsNullOrEmpty(code_challenge_method))
+            queryParams.Add($"code_challenge_method={Uri.EscapeDataString(code_challenge_method)}");
+
+        return $"{Settings.ApiUrl}/api/auth/oidc-login?{string.Join("&", queryParams)}";
+    }
+
     private string BuildReturnUrl(string basePath)
     {
         var queryParams = new List<string>();
@@ -822,7 +893,16 @@
 
     public class RegisterResponse
     {
-        public bool success { get; set; }
-        public string? redirectUrl { get; set; }
+        public bool Success { get; set; }
+        public string? Error { get; set; }
+        public UserInfo? User { get; set; }
+    }
+
+    public class UserInfo
+    {
+        public int Id { get; set; }
+        public string Email { get; set; } = string.Empty;
+        public string FirstName { get; set; } = string.Empty;
+        public string LastName { get; set; } = string.Empty;
     }
 }

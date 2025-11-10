@@ -59,102 +59,38 @@
         // Log cuando la página se está cargando
         window.debugLog('Login page script loaded in index.html');
         
-        // OIDC form submission function
-        window.submitOidcForm = function(formData) {
-            console.log('[UI] Submitting OIDC form to API:', formData);
+        // Generic fetch function with credentials (for cookies)
+        // This is the ONLY JavaScript function needed for API calls
+        window.fetchWithCredentials = async function(url, method, body) {
+            console.log(`[UI] fetchWithCredentials: ${method} ${url}`);
 
-            var form = document.createElement('form');
-            form.method = 'post';
-            form.action = 'https://localhost:5000/api/auth/oidc-form-login';
-            form.style.display = 'none';
+            try {
+                const options = {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include' // ← CRITICAL: This sends cookies cross-origin
+                };
 
-            // Map field names to match C# model properties (PascalCase)
-            var fieldMapping = {
-                'email': 'Email',
-                'password': 'Password',
-                'client_id': 'ClientId',
-                'redirect_uri': 'RedirectUri',
-                'response_type': 'ResponseType',
-                'scope': 'Scope',
-                'state': 'State',
-                'code_challenge': 'CodeChallenge',
-                'code_challenge_method': 'CodeChallengeMethod'
-            };
-
-            // Add all form fields with correct naming
-            Object.keys(formData).forEach(function(key) {
-                if (formData[key]) {
-                    var input = document.createElement('input');
-                    input.type = 'hidden';
-                    input.name = fieldMapping[key] || key;
-                    input.value = formData[key];
-                    form.appendChild(input);
+                if (body && method !== 'GET') {
+                    options.body = JSON.stringify(body);
                 }
-            });
 
-            document.body.appendChild(form);
-            form.submit();
-        };
+                const response = await fetch(url, options);
 
-        // Google registration form submission function
-        window.submitGoogleRegisterForm = function(formData) {
-            console.log('[UI] Submitting Google registration form to API:', formData);
-
-            var form = document.createElement('form');
-            form.method = 'post';
-            form.action = 'https://localhost:5000/api/auth/register-with-google';
-            form.style.display = 'none';
-
-            // Add all form fields as-is (backend expects JSON model binding)
-            // But since we're doing form submission, we need to match property names
-            Object.keys(formData).forEach(function(key) {
-                if (formData[key] !== null && formData[key] !== undefined) {
-                    var input = document.createElement('input');
-                    input.type = 'hidden';
-                    input.name = key;
-                    input.value = formData[key];
-                    form.appendChild(input);
+                if (!response.ok) {
+                    console.error(`[UI] fetchWithCredentials failed: ${response.status}`);
+                    return { success: false, error: `HTTP ${response.status}` };
                 }
-            });
 
-            document.body.appendChild(form);
-            form.submit();
-        };
-
-        // Manual registration form submission function
-        window.submitManualRegisterForm = function(formData) {
-            console.log('[UI] Submitting manual registration form to API:', formData);
-
-            var form = document.createElement('form');
-            form.method = 'post';
-            form.action = 'https://localhost:5000/api/auth/register-complete';
-            form.style.display = 'none';
-
-            // Map field names to match C# model properties (PascalCase)
-            var fieldMapping = {
-                'firstName': 'FirstName',
-                'lastName': 'LastName',
-                'email': 'Email',
-                'password': 'Password',
-                'confirmPassword': 'ConfirmPassword',
-                'dateOfBirth': 'DateOfBirth',
-                'acceptTerms': 'AcceptTerms',
-                'returnUrl': 'ReturnUrl'
-            };
-
-            // Add all form fields with correct naming
-            Object.keys(formData).forEach(function(key) {
-                if (formData[key] !== null && formData[key] !== undefined) {
-                    var input = document.createElement('input');
-                    input.type = 'hidden';
-                    input.name = fieldMapping[key] || key;
-                    input.value = formData[key];
-                    form.appendChild(input);
-                }
-            });
-
-            document.body.appendChild(form);
-            form.submit();
+                const data = await response.json();
+                console.log('[UI] fetchWithCredentials response:', data);
+                return data;
+            } catch (error) {
+                console.error('[UI] fetchWithCredentials error:', error);
+                return { success: false, error: error.message };
+            }
         };
     </script>
 </body>

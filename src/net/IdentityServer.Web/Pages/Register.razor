@@ -1,9 +1,10 @@
 @page "/register"
 @using System.ComponentModel.DataAnnotations
+@using System.Net.Http.Json
+@using Microsoft.AspNetCore.Components.WebAssembly.Http
 @using Microsoft.AspNetCore.WebUtilities
 @using IdentityServer.Web.Configuration
 @inject HttpClient Http
-@inject IJSRuntime JSRuntime
 @inject NavigationManager Navigation
 @inject IdentityServerSettings Settings
 
@@ -577,7 +578,7 @@
             errorMessage = string.Empty;
             successMessage = string.Empty;
 
-            if (isGoogleRegistration && !string.IsNullOrEmpty(googleIdToken))
+            if (isGoogleRegistration && !string.IsNullOrEmpty(googleId))
             {
                 // Validate Google registration fields manually
                 if (registerModel.DateOfBirth == default)
@@ -597,22 +598,35 @@
 
                 var googleRegisterRequest = new
                 {
-                    IdToken = googleIdToken,
+                    GoogleId = googleId,
+                    Email = registerModel.Email,
+                    FirstName = registerModel.FirstName,
+                    LastName = registerModel.LastName,
                     DateOfBirth = registerModel.DateOfBirth,
                     AcceptTerms = registerModel.AcceptTerms
                 };
 
-                // Call the API to register the user with Google
-                var googleRegisterResponse = await JSRuntime.InvokeAsync<RegisterResponse>(
-                    "fetchWithCredentials",
-                    $"{Settings.ApiUrl}/api/auth/register-with-google",
-                    "POST",
-                    googleRegisterRequest
-                );
-
-                if (!googleRegisterResponse.Success)
+                // Create HTTP request with credentials enabled for cross-origin cookies
+                var request = new HttpRequestMessage(HttpMethod.Post, $"{Settings.ApiUrl}/api/auth/register-with-google")
                 {
-                    errorMessage = googleRegisterResponse.Error ?? "Registration with Google failed. Please try again.";
+                    Content = JsonContent.Create(googleRegisterRequest)
+                };
+                request.SetBrowserRequestCredentials(BrowserRequestCredentials.Include);
+
+                var response = await Http.SendAsync(request);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    errorMessage = "Registration with Google failed. Please try again.";
+                    isLoading = false;
+                    return;
+                }
+
+                var googleRegisterResponse = await response.Content.ReadFromJsonAsync<RegisterResponse>();
+
+                if (googleRegisterResponse == null || !googleRegisterResponse.Success)
+                {
+                    errorMessage = googleRegisterResponse?.Error ?? "Registration with Google failed. Please try again.";
                     isLoading = false;
                     return;
                 }
@@ -652,17 +666,27 @@
                     AcceptTerms = registerModel.AcceptTerms
                 };
 
-                // Call the API to register the user
-                var registerResponse = await JSRuntime.InvokeAsync<RegisterResponse>(
-                    "fetchWithCredentials",
-                    $"{Settings.ApiUrl}/api/auth/register",
-                    "POST",
-                    registerRequest
-                );
-
-                if (!registerResponse.Success)
+                // Create HTTP request with credentials enabled for cross-origin cookies
+                var request = new HttpRequestMessage(HttpMethod.Post, $"{Settings.ApiUrl}/api/auth/register")
                 {
-                    errorMessage = registerResponse.Error ?? "Registration failed. Please try again.";
+                    Content = JsonContent.Create(registerRequest)
+                };
+                request.SetBrowserRequestCredentials(BrowserRequestCredentials.Include);
+
+                var response = await Http.SendAsync(request);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    errorMessage = "Registration failed. Please try again.";
+                    isLoading = false;
+                    return;
+                }
+
+                var registerResponse = await response.Content.ReadFromJsonAsync<RegisterResponse>();
+
+                if (registerResponse == null || !registerResponse.Success)
+                {
+                    errorMessage = registerResponse?.Error ?? "Registration failed. Please try again.";
                     isLoading = false;
                     return;
                 }
@@ -708,8 +732,16 @@
             Console.WriteLine($"[DEBUG] HandleGoogleCallback called with code: {code.Substring(0, 10)}...");
 
             // Call backend to exchange code for user info
-            var request = new { authorizationCode = code };
-            var response = await Http.PostAsJsonAsync("https://localhost:5000/api/auth/google-userinfo", request);
+            var requestData = new { authorizationCode = code };
+
+            // Create HTTP request with credentials enabled for cross-origin cookies
+            var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{Settings.ApiUrl}/api/auth/google-userinfo")
+            {
+                Content = JsonContent.Create(requestData)
+            };
+            httpRequest.SetBrowserRequestCredentials(BrowserRequestCredentials.Include);
+
+            var response = await Http.SendAsync(httpRequest);
 
             if (response.IsSuccessStatusCode)
             {
@@ -746,7 +778,7 @@
         }
     }
 
-    private async Task HandleGoogleRegister()
+    private void HandleGoogleRegister()
     {
         try
         {
@@ -772,7 +804,7 @@
                 $"state={Uri.EscapeDataString(state)}&" +
                 $"access_type=offline";
 
-            await JSRuntime.InvokeVoidAsync("open", googleAuthUrl, "_self");
+            Navigation.NavigateTo(googleAuthUrl, forceLoad: true);
         }
         catch (Exception ex)
         {

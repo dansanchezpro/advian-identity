@@ -1,9 +1,10 @@
 @page "/login"
 @using System.ComponentModel.DataAnnotations
 @using System.Text.Json
+@using System.Net.Http.Json
+@using Microsoft.AspNetCore.Components.WebAssembly.Http
 @using IdentityServer.Web.Configuration
 @inject HttpClient Http
-@inject IJSRuntime JSRuntime
 @inject NavigationManager Navigation
 @inject IdentityServerSettings Settings
 
@@ -392,13 +393,13 @@
                 errorMessage = "No account found with this Google account. Please create an account first.";
             }
         }
-        
-        // Store parameters to avoid losing them during form submission
+
+        // Debug logging
         if (!string.IsNullOrEmpty(client_id))
         {
-            await JSRuntime.InvokeVoidAsync("debugLog", $"OnInitialized - client_id: {client_id}, redirect_uri: {redirect_uri}");
+            Console.WriteLine($"[DEBUG] OnInitialized - client_id: {client_id}, redirect_uri: {redirect_uri}");
         }
-        
+
         if (!string.IsNullOrEmpty(clientId))
         {
             try
@@ -441,16 +442,28 @@
 
             // Step 1: Authenticate the user and create session cookie
             var loginRequest = new { Email = loginModel.Email, Password = loginModel.Password };
-            var loginResponse = await JSRuntime.InvokeAsync<LoginResponse>(
-                "fetchWithCredentials",
-                $"{Settings.ApiUrl}/api/auth/login",
-                "POST",
-                loginRequest
-            );
 
-            if (!loginResponse.Success)
+            // Create HTTP request with credentials enabled for cross-origin cookies
+            var request = new HttpRequestMessage(HttpMethod.Post, $"{Settings.ApiUrl}/api/auth/login")
             {
-                errorMessage = loginResponse.Error ?? "Invalid email or password";
+                Content = JsonContent.Create(loginRequest)
+            };
+            request.SetBrowserRequestCredentials(BrowserRequestCredentials.Include);
+
+            var response = await Http.SendAsync(request);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                errorMessage = "Invalid email or password";
+                isLoading = false;
+                return;
+            }
+
+            var loginResponse = await response.Content.ReadFromJsonAsync<LoginResponse>();
+
+            if (loginResponse == null || !loginResponse.Success)
+            {
+                errorMessage = loginResponse?.Error ?? "Invalid email or password";
                 isLoading = false;
                 return;
             }
@@ -492,7 +505,7 @@
         return $"{Settings.ApiUrl}/api/auth/oidc-login?{string.Join("&", queryParams)}";
     }
 
-    private async Task HandleExternalLogin(string provider)
+    private void HandleExternalLogin(string provider)
     {
         if (isLoading) return;
         isLoading = true;
@@ -501,7 +514,7 @@
         {
             var returnUrl = BuildReturnUrl();
             var externalUrl = $"{Settings.ApiUrl}/api/auth/external/{provider.ToLower()}?returnUrl={Uri.EscapeDataString(returnUrl)}";
-            await JSRuntime.InvokeVoidAsync("open", externalUrl, "_self");
+            Navigation.NavigateTo(externalUrl, forceLoad: true);
         }
         catch
         {
@@ -510,19 +523,19 @@
         }
     }
 
-    private async Task HandleGoogleLogin()
+    private void HandleGoogleLogin()
     {
-        await HandleExternalLogin("Google");
+        HandleExternalLogin("Google");
     }
 
-    private async Task HandleMicrosoftLogin()
+    private void HandleMicrosoftLogin()
     {
-        await HandleExternalLogin("Microsoft");
+        HandleExternalLogin("Microsoft");
     }
 
-    private async Task HandleAppleLogin()
+    private void HandleAppleLogin()
     {
-        await HandleExternalLogin("Apple");
+        HandleExternalLogin("Apple");
     }
 
 

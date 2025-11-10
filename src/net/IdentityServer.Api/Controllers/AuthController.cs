@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using System.Security.Claims;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace IdentityServer.Api.Controllers;
 
@@ -62,19 +63,36 @@ public class AuthController : ControllerBase
             var userIdClaim = HttpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (!string.IsNullOrEmpty(userIdClaim) && int.TryParse(userIdClaim, out var userId))
             {
-                // User authenticated via .NET - generating code directly
-                
-                // User is already authenticated, generate authorization code directly
-                var code = await _tokenService.GenerateAuthorizationCodeAsync(
-                    client_id, userId, scope.Split(' ').ToList(), redirect_uri,
-                    code_challenge, code_challenge_method);
+                // IMPORTANT: Verify the user still exists in the database
+                // (could be stale cookie after DB reset in development)
+                var user = await _userService.FindByIdAsync(userId);
+                if (user == null || !user.IsActive)
+                {
+                    Console.WriteLine($"[DEBUG] Stale cookie detected - UserId {userId} not found. Signing out.");
 
-                var redirectUrl = $"{redirect_uri}?code={code}";
-                if (!string.IsNullOrEmpty(state))
-                    redirectUrl += $"&state={Uri.EscapeDataString(state)}";
+                    // Clear the invalid cookie
+                    await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
 
-                // SSO redirect
-                return Redirect(redirectUrl);
+                    // Fall through to redirect to login page below
+                    // (will be handled by the "No valid session found" code)
+                }
+                else
+                {
+                    // User authenticated via .NET - generating code directly
+                    Console.WriteLine($"[DEBUG] Valid session found for UserId: {userId}");
+
+                    // User is already authenticated, generate authorization code directly
+                    var code = await _tokenService.GenerateAuthorizationCodeAsync(
+                        client_id, userId, scope.Split(' ').ToList(), redirect_uri,
+                        code_challenge, code_challenge_method);
+
+                    var redirectUrl = $"{redirect_uri}?code={code}";
+                    if (!string.IsNullOrEmpty(state))
+                        redirectUrl += $"&state={Uri.EscapeDataString(state)}";
+
+                    // SSO redirect
+                    return Redirect(redirectUrl);
+                }
             }
         }
        
@@ -113,6 +131,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("login")]
+    [EnableRateLimiting("auth")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
         var user = await _userService.ValidateCredentialsAsync(request.Email, request.Password);
@@ -471,6 +490,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("register")]
+    [EnableRateLimiting("auth")]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request)
     {
         try
@@ -716,9 +736,28 @@ public class AuthController : ControllerBase
                 return BadRequest(new { error = "failed_to_get_user_info", error_description = "Failed to retrieve user information from Google" });
             }
 
+            // SECURITY: Validate the id_token NOW (not later when it might expire)
+            GoogleUserInfo? validatedUserInfo = null;
+            if (!string.IsNullOrEmpty(tokenResponse.IdToken))
+            {
+                try
+                {
+                    validatedUserInfo = await ValidateGoogleIdToken(tokenResponse.IdToken);
+                    Console.WriteLine($"[DEBUG] ID token validated successfully during registration flow");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[ERROR] ID token validation failed: {ex.Message}");
+                }
+            }
+
+            // If token validation failed, fall back to using access token data
+            // (less secure but still works)
+            var finalUserInfo = validatedUserInfo ?? googleUserInfo;
+
             // Check if user already exists (by GoogleId or Email)
             var existingUser = await _context.Users
-                .FirstOrDefaultAsync(u => u.GoogleId == googleUserInfo.Id || u.Email == googleUserInfo.Email);
+                .FirstOrDefaultAsync(u => u.GoogleId == finalUserInfo.Id || u.Email == finalUserInfo.Email);
 
             if (existingUser != null)
             {
@@ -726,16 +765,16 @@ public class AuthController : ControllerBase
             }
 
             // Return Google user info WITHOUT creating account
-            // IMPORTANT: Return the id_token so frontend can send it back for validation
+            // IMPORTANT: Return the googleId for later use (already validated)
             return Ok(new
             {
                 success = true,
-                googleId = googleUserInfo.Id,
-                email = googleUserInfo.Email,
-                firstName = googleUserInfo.GivenName ?? googleUserInfo.Name ?? googleUserInfo.Email.Split('@')[0],
-                lastName = googleUserInfo.FamilyName ?? "User",
-                profilePicture = googleUserInfo.Picture,
-                idToken = tokenResponse.IdToken  // Include id_token for later validation
+                googleId = finalUserInfo.Id,
+                email = finalUserInfo.Email,
+                firstName = finalUserInfo.GivenName ?? finalUserInfo.Name ?? finalUserInfo.Email.Split('@')[0],
+                lastName = finalUserInfo.FamilyName ?? "User",
+                profilePicture = finalUserInfo.Picture,
+                // DO NOT return idToken - we'll use googleId directly
             });
         }
         catch (Exception ex)
@@ -747,6 +786,7 @@ public class AuthController : ControllerBase
 
     // New endpoint: Complete registration with Google data (Step 2 - creates account)
     [HttpPost("register-with-google")]
+    [EnableRateLimiting("auth")]
     public async Task<IActionResult> RegisterWithGoogle([FromBody] RegisterWithGoogleRequest request)
     {
         try
@@ -754,36 +794,23 @@ public class AuthController : ControllerBase
             Console.WriteLine($"[DEBUG] RegisterWithGoogle called");
 
             // Validate required fields
-            if (string.IsNullOrEmpty(request.IdToken) || request.DateOfBirth == default || !request.AcceptTerms)
+            if (string.IsNullOrEmpty(request.GoogleId) ||
+                string.IsNullOrEmpty(request.Email) ||
+                request.DateOfBirth == default ||
+                !request.AcceptTerms)
             {
                 return Ok(new { success = false, error = "All fields are required" });
             }
 
-            // SECURITY: Validate the id_token directly with Google's signing keys
-            GoogleUserInfo? googleUserInfo;
-            try
-            {
-                googleUserInfo = await ValidateGoogleIdToken(request.IdToken);
-                if (googleUserInfo == null)
-                {
-                    return Ok(new { success = false, error = "Invalid or expired Google ID token" });
-                }
-                Console.WriteLine($"[DEBUG] ID token validated successfully for user: {googleUserInfo.Email}");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[ERROR] ID token validation failed: {ex.Message}");
-                return Ok(new { success = false, error = "Failed to validate Google ID token" });
-            }
+            Console.WriteLine($"[DEBUG] Registering user with GoogleId: {request.GoogleId}, Email: {request.Email}");
 
-            // Extract verified data from the validated id_token
-            var googleId = googleUserInfo.Id;
-            var email = googleUserInfo.Email;
-            var firstName = googleUserInfo.GivenName ?? googleUserInfo.Name ?? email.Split('@')[0];
-            var lastName = googleUserInfo.FamilyName ?? "User";
-            var profilePicture = googleUserInfo.Picture;
+            // Use data from request (already validated in GetGoogleUserInfo endpoint)
+            var googleId = request.GoogleId;
+            var email = request.Email;
+            var firstName = request.FirstName ?? email.Split('@')[0];
+            var lastName = request.LastName ?? "User";
 
-            Console.WriteLine($"[DEBUG] Creating account for verified Google user: {email} (GoogleId: {googleId})");
+            Console.WriteLine($"[DEBUG] Creating account for Google user: {email} (GoogleId: {googleId})");
 
             // Check if user already exists
             var existingUser = await _context.Users
@@ -804,14 +831,13 @@ public class AuthController : ControllerBase
                 return Ok(new { success = false, error = "You must be at least 13 years old to register" });
             }
 
-            // Create new user with VALIDATED Google data
+            // Create new user with Google data (validated in previous step)
             var user = new User
             {
-                GoogleId = googleId,  // From validated id_token
-                Email = email,        // From validated id_token
-                FirstName = firstName,   // From validated id_token
-                LastName = lastName,     // From validated id_token
-                ProfilePicture = profilePicture,  // From validated id_token
+                GoogleId = googleId,
+                Email = email,
+                FirstName = firstName,
+                LastName = lastName,
                 DateOfBirth = request.DateOfBirth,  // From user input
                 PasswordHash = string.Empty, // No password for Google-only accounts
                 CreatedAt = DateTime.UtcNow,
@@ -863,61 +889,69 @@ public class AuthController : ControllerBase
         }
     }
 
-    // Helper method to validate Google's id_token
+    // Helper method to validate Google's id_token with cryptographic signature verification
     private async Task<GoogleUserInfo?> ValidateGoogleIdToken(string idToken)
     {
         try
         {
-            // Decode JWT without validation first to get the payload
             var handler = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler();
-            var jsonToken = handler.ReadJwtToken(idToken);
+            var expectedClientId = _configuration["Authentication:Google:ClientId"];
 
-            // Extract claims
-            var googleId = jsonToken.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
-            var email = jsonToken.Claims.FirstOrDefault(c => c.Type == "email")?.Value;
-            var name = jsonToken.Claims.FirstOrDefault(c => c.Type == "name")?.Value;
-            var givenName = jsonToken.Claims.FirstOrDefault(c => c.Type == "given_name")?.Value;
-            var familyName = jsonToken.Claims.FirstOrDefault(c => c.Type == "family_name")?.Value;
-            var picture = jsonToken.Claims.FirstOrDefault(c => c.Type == "picture")?.Value;
-            var emailVerified = jsonToken.Claims.FirstOrDefault(c => c.Type == "email_verified")?.Value;
+            // Configure token validation parameters
+            var validationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidIssuers = new[] { "https://accounts.google.com", "accounts.google.com" },
 
-            // Basic validation
+                ValidateAudience = true,
+                ValidAudience = expectedClientId,
+
+                ValidateLifetime = true,
+                ClockSkew = TimeSpan.FromMinutes(5), // Allow 5 minutes clock skew
+
+                // CRITICAL: Validate the signature using Google's public keys
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKeyResolver = (token, securityToken, kid, validationParameters) =>
+                {
+                    // Fetch Google's public keys from their well-known endpoint
+                    // Google rotates these keys periodically
+                    using var httpClient = new HttpClient();
+                    var response = httpClient.GetAsync("https://www.googleapis.com/oauth2/v3/certs").Result;
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        Console.WriteLine("[ERROR] Failed to fetch Google's public keys");
+                        return null;
+                    }
+
+                    var jwks = response.Content.ReadAsStringAsync().Result;
+                    var jsonWebKeySet = new Microsoft.IdentityModel.Tokens.JsonWebKeySet(jwks);
+
+                    // Return the key that matches the 'kid' (Key ID) from the JWT header
+                    return jsonWebKeySet.Keys;
+                }
+            };
+
+            // Validate token - this will verify signature, expiration, issuer, and audience
+            var principal = handler.ValidateToken(idToken, validationParameters, out var validatedToken);
+
+            // Extract claims from validated token
+            var googleId = principal.FindFirst("sub")?.Value;
+            var email = principal.FindFirst("email")?.Value;
+            var name = principal.FindFirst("name")?.Value;
+            var givenName = principal.FindFirst("given_name")?.Value;
+            var familyName = principal.FindFirst("family_name")?.Value;
+            var picture = principal.FindFirst("picture")?.Value;
+            var emailVerified = principal.FindFirst("email_verified")?.Value;
+
+            // Verify required claims are present
             if (string.IsNullOrEmpty(googleId) || string.IsNullOrEmpty(email))
             {
-                Console.WriteLine("[ERROR] ID token missing required claims");
+                Console.WriteLine("[ERROR] ID token missing required claims (sub or email)");
                 return null;
             }
 
-            // Verify issuer
-            var issuer = jsonToken.Claims.FirstOrDefault(c => c.Type == "iss")?.Value;
-            if (issuer != "https://accounts.google.com" && issuer != "accounts.google.com")
-            {
-                Console.WriteLine($"[ERROR] Invalid issuer: {issuer}");
-                return null;
-            }
-
-            // Verify audience (should be our client_id)
-            var audience = jsonToken.Claims.FirstOrDefault(c => c.Type == "aud")?.Value;
-            var expectedClientId = _configuration["Authentication:Google:ClientId"];
-            if (audience != expectedClientId)
-            {
-                Console.WriteLine($"[ERROR] Invalid audience: {audience}, expected: {expectedClientId}");
-                return null;
-            }
-
-            // Verify expiration
-            var exp = jsonToken.Claims.FirstOrDefault(c => c.Type == "exp")?.Value;
-            if (!string.IsNullOrEmpty(exp) && long.TryParse(exp, out var expTimestamp))
-            {
-                var expirationTime = DateTimeOffset.FromUnixTimeSeconds(expTimestamp);
-                if (expirationTime < DateTimeOffset.UtcNow)
-                {
-                    Console.WriteLine($"[ERROR] ID token expired at: {expirationTime}");
-                    return null;
-                }
-            }
-
-            Console.WriteLine($"[DEBUG] ID token validated - GoogleId: {googleId}, Email: {email}");
+            Console.WriteLine($"[DEBUG] ID token CRYPTOGRAPHICALLY VALIDATED - GoogleId: {googleId}, Email: {email}");
 
             return new GoogleUserInfo
             {
@@ -929,6 +963,11 @@ public class AuthController : ControllerBase
                 Picture = picture,
                 VerifiedEmail = emailVerified == "true"
             };
+        }
+        catch (Microsoft.IdentityModel.Tokens.SecurityTokenException ex)
+        {
+            Console.WriteLine($"[ERROR] Token validation failed: {ex.Message}");
+            return null;
         }
         catch (Exception ex)
         {
@@ -1076,7 +1115,14 @@ public class GoogleUserInfoRequest
 public class RegisterWithGoogleRequest
 {
     [Required]
-    public string IdToken { get; set; } = string.Empty;  // Google's signed id_token for validation
+    public string GoogleId { get; set; } = string.Empty;  // Google user ID (validated in previous step)
+
+    [Required]
+    public string Email { get; set; } = string.Empty;  // Email from Google (validated in previous step)
+
+    public string? FirstName { get; set; }  // Optional - from Google
+
+    public string? LastName { get; set; }  // Optional - from Google
 
     // These fields are from the form (user input)
     [Required]

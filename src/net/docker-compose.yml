@@ -1,20 +1,26 @@
 services:
+  # Identity Server API (Backend)
   identityserver-api:
     build:
       context: .
       dockerfile: IdentityServer.Api/Dockerfile
     container_name: identityserver-api
     ports:
-      - "7000:8080"
+      - "5000:8080"  # Changed from 7000 to 5000 to match dev environment
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:8080
       - ConnectionStrings__DefaultConnection=Server=sqlserver;Database=IdentityServerDb;User Id=sa;Password=YourStrong@Password123;TrustServerCertificate=True;
       - JWT__SecretKey=${JWT_SECRET_KEY:-MyVerySecretKeyForJWTTokenGeneration123456789}
-      - JWT__Issuer=https://localhost:7000
-      - JWT__Audience=https://localhost:7000
-      - Cors__AllowedOrigins__0=https://yourdomain.com
-      - Cors__AllowedOrigins__1=https://www.yourdomain.com
+      - JWT__Issuer=http://localhost:5000
+      - JWT__Audience=http://localhost:5000
+      - IdentityServer__LoginUrl=http://localhost:7000  # UI URL
+      - Authentication__Google__ClientId=${GOOGLE_CLIENT_ID}
+      - Authentication__Google__ClientSecret=${GOOGLE_CLIENT_SECRET}
+      - Cors__AllowedOrigins__0=http://localhost:7000  # UI
+      - Cors__AllowedOrigins__1=http://localhost:7001  # SampleApp1
+      - Cors__AllowedOrigins__2=http://localhost:7002  # SampleApp2
+      - Cors__AllowedOrigins__3=http://localhost:7003  # SampleApp3
     depends_on:
       sqlserver:
         condition: service_healthy
@@ -27,6 +33,29 @@ services:
       timeout: 3s
       retries: 3
       start_period: 10s
+
+  # Identity Server UI (Frontend - Blazor WebAssembly)
+  identityserver-ui:
+    build:
+      context: .
+      dockerfile: IdentityServer.Web/Dockerfile
+    container_name: identityserver-ui
+    ports:
+      - "7000:8080"
+    environment:
+      - NGINX_PORT=8080
+    networks:
+      - identity-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    depends_on:
+      identityserver-api:
+        condition: service_healthy
 
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest

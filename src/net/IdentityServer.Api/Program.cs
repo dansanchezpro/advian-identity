@@ -2,6 +2,7 @@ using IdentityServer.Core.Data;
 using IdentityServer.Core.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -89,6 +90,55 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("JWT"));
 builder.Configuration["JWT:SecretKey"] = "MyVerySecretKeyForJWTTokenGeneration123456789";
 
+// Configure Rate Limiting for authentication endpoints
+builder.Services.AddRateLimiter(options =>
+{
+    // Policy for authentication endpoints: 5 attempts per 15 minutes
+    options.AddPolicy("auth", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromMinutes(15),
+                PermitLimit = 5,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0 // No queueing, reject immediately
+            }));
+
+    // Global policy: 100 requests per minute (prevents abuse)
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+    {
+        // Use IP address for rate limiting
+        var ipAddress = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+        return RateLimitPartition.GetFixedWindowLimiter(ipAddress, _ => new FixedWindowRateLimiterOptions
+        {
+            Window = TimeSpan.FromMinutes(1),
+            PermitLimit = 100,
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            QueueLimit = 0
+        });
+    });
+
+    // Customize rejection response
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        context.HttpContext.Response.ContentType = "application/json";
+
+        var retryAfter = context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfterValue)
+            ? retryAfterValue.TotalSeconds
+            : 900; // 15 minutes default
+
+        await context.HttpContext.Response.WriteAsJsonAsync(new
+        {
+            error = "too_many_requests",
+            error_description = "Too many attempts. Please try again later.",
+            retry_after_seconds = retryAfter
+        }, cancellationToken);
+    };
+});
+
 var app = builder.Build();
 
 // Seed the database only in development
@@ -148,6 +198,8 @@ app.Use(async (context, next) =>
 // Use CORS with the configured policy
 app.UseCors();
 
+// Enable rate limiting middleware
+app.UseRateLimiter();
 
 app.UseHttpsRedirection();
 app.UseAuthentication();

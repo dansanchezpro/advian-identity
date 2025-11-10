@@ -1,7 +1,5 @@
 using IdentityServer.Core.Models;
 using Microsoft.EntityFrameworkCore;
-using System.Security.Cryptography;
-using System.Text;
 
 namespace IdentityServer.Core.Data;
 
@@ -160,8 +158,8 @@ public static class DbSeeder
 
     private static string HashPassword(string password)
     {
-        using var sha256 = SHA256.Create();
-        var hashedBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(password + "salt"));
-        return Convert.ToBase64String(hashedBytes);
+        // Use BCrypt with work factor of 12 (must match UserService.HashPassword)
+        // This ensures demo users can authenticate with the new BCrypt validation
+        return BCrypt.Net.BCrypt.HashPassword(password, workFactor: 12);
     }
 }

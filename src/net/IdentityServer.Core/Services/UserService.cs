@@ -1,8 +1,6 @@
 using IdentityServer.Core.Models;
 using IdentityServer.Core.Data;
 using Microsoft.EntityFrameworkCore;
-using System.Security.Cryptography;
-using System.Text;
 
 namespace IdentityServer.Core.Services;
 
@@ -21,8 +19,8 @@ public class UserService : IUserService
         if (user == null || !user.IsActive)
             return null;
 
-        var hashedPassword = HashPassword(password);
-        return user.PasswordHash == hashedPassword ? user : null;
+        // Verify password using BCrypt
+        return BCrypt.Net.BCrypt.Verify(password, user.PasswordHash) ? user : null;
     }
 
     public async Task<User?> FindByEmailAsync(string email)
@@ -106,8 +104,8 @@ public class UserService : IUserService
 
     private static string HashPassword(string password)
     {
-        using var sha256 = SHA256.Create();
-        var hashedBytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(password + "salt"));
-        return Convert.ToBase64String(hashedBytes);
+        // Use BCrypt with work factor of 12 (recommended for 2024)
+        // Higher work factor = more secure but slower
+        return BCrypt.Net.BCrypt.HashPassword(password, workFactor: 12);
     }
 }

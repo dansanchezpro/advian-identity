@@ -1,0 +1,192 @@
+ERROR HANDLING ANALYSIS - SUMMARY AND RECOMMENDATIONS
+=====================================================
+
+CRITICAL ISSUES FOUND (8 Total)
+
+1. WEAK PASSWORD HASHING (Line: UserService.cs 107-112)
+   - Uses SHA256 + hardcoded "salt" string
+   - No iteration or stretching
+   - Vulnerable to rainbow tables and GPU attacks
+   - Fix: Replace with BCrypt or Argon2
+
+2. JWT SIGNATURE NOT VERIFIED (Line: AuthController.cs 867-938)
+   - Only reads token, doesn't validate signature
+   - Token forgery is possible
+   - Attacker can claim any Google identity
+   - Fix: Use JwtSecurityTokenHandler.ValidateToken with key validation
+
+3. RACE CONDITION ON USER CREATION (Line: AuthController.cs 788-823)
+   - Check duplicate email, then insert (not atomic)
+   - Two threads could both pass check and insert
+   - Results in duplicate email accounts
+   - Fix: Use database transaction or unique constraint with error handling
+
+4. HTTP 200 FOR ERRORS (Line: AuthController.cs 749-864)
+   - RegisterWithGoogle returns 200 OK for all errors
+   - Should return 400 Bad Request or 409 Conflict
+   - Client cannot distinguish success from failure
+   - Fix: Return proper HTTP status codes
+
+5. SSRF VULNERABILITY (Line: AuthController.cs 241-434)
+   - returnUrl parameter not validated before redirect
+   - Can redirect to attacker's site or internal services
+   - Fix: Validate against whitelist of allowed domains
+
+6. EXCEPTION MESSAGE DISCLOSURE (Line: AuthController.cs 528)
+   - Exposes InvalidOperationException.Message to client
+   - Example: "User with this email already exists"
+   - Confirms user existence and reveals system details
+   - Fix: Return generic error message, log exception details server-side
+
+7. NO RATE LIMITING (Line: All auth endpoints)
+   - No protection against brute force attacks
+   - Attackers can try unlimited login attempts
+   - Fix: Implement rate limiter (e.g., 5 attempts per 15 minutes)
+
+8. NO ERROR LOGGING (Line: All try-catch blocks)
+   - Exceptions are caught but not logged
+   - Can't debug production issues or detect attack patterns
+   - Fix: Inject ILogger and log all exceptions
+
+EDGE CASES NOT HANDLED
+======================
+
+Frontend (Login.razor):
+- Timeout errors (caught as generic Exception)
+- HTTP status differentiation (400 vs 500 same message)
+- JSON deserialization failures (silent failure)
+- CORS/pre-flight failures (not detected)
+- Missing ApiUrl configuration (no validation)
+
+Frontend (Register.razor):
+- Duplicate email not pre-checked before form submit
+- Invalid state Base64 decoding (silent catch)
+- Response body truncation (could expose sensitive data)
+- Concurrent form submissions (isLoading only prevents UI)
+- Age calculation leap year issues
+
+Backend:
+- SignInAsync exception not caught (Login endpoint)
+- SaveChangesAsync not caught (multiple locations)
+- AddExternalLoginAsync not checked (Line 354)
+- QueryHelpers.ParseQuery not wrapped in try-catch
+- Age calculation off-by-one errors
+
+HTTP STATUS CODES - CURRENT vs RECOMMENDED
+===========================================
+
+CURRENT:
+- 200 OK: All success responses
+- 400 Bad Request: Validation errors, credential errors
+- 500 Internal Server Error: Generic exceptions
+- 200 OK with success:false: RegisterWithGoogle errors (WRONG)
+
+RECOMMENDED:
+- 200 OK: Success responses
+- 400 Bad Request: Validation errors, invalid input, auth failures
+- 401 Unauthorized: Invalid credentials
+- 409 Conflict: Duplicate email, user already exists
+- 429 Too Many Requests: Rate limit exceeded
+- 500 Internal Server Error: Unexpected server errors
+- 503 Service Unavailable: OAuth provider down
+
+ERROR RESPONSE FORMATS - CURRENT vs RECOMMENDED
+===============================================
+
+CURRENT - Inconsistent formats:
+Standard: { error: "...", error_description: "..." }
+Inconsistent: { success: false, error: "..." }
+
+RECOMMENDED - Single format:
+Success (200): { success: true, data: {...} }
+Error (4xx/5xx): { error: "error_code", error_description: "user message" }
+
+ERROR MESSAGES SHOWN TO USERS
+=============================
+
+Login.razor:
+- "Please enter your email and password." (manual validation)
+- "Invalid email or password" (bad credentials)
+- "No account found with this Google account. Please create an account first."
+- "An error occurred during login. Please try again." (generic)
+- "An error occurred during external login. Please try again."
+
+Register.razor:
+- "Date of birth is required" (Google flow)
+- "You must accept the terms and conditions"
+- "Registration with Google failed. Please try again."
+- "Registration failed. Please try again."
+- "Connected with Google as {email}. Please complete your registration below."
+- "Failed to retrieve Google account information. Please try again."
+- "An unexpected error occurred. Please try again." (generic)
+- "Google authentication failed: {errorContent}" (response body)
+
+FILES TO MODIFY (Priority Order)
+================================
+
+CRITICAL:
+1. UserService.cs - Replace password hashing (Lines 107-112)
+2. AuthController.cs - Fix RegisterWithGoogle (Lines 749-864)
+3. AuthController.cs - Add JWT signature verification (Lines 867-938)
+4. AuthController.cs - Make user creation atomic (Lines 788-823)
+
+HIGH:
+5. AuthController.cs - Validate returnUrl (Lines 241-434)
+6. Program.cs - Add rate limiting middleware
+7. AuthController.cs - Add logging throughout
+8. AuthController.cs - Fix error message exposure (Line 528)
+
+MEDIUM:
+9. Login.razor - Differentiate error types
+10. Register.razor - Add email pre-check
+11. AuthController.cs - Add OIDC state validation
+12. Program.cs - Add error handling middleware
+
+SPECIFIC CODE LOCATIONS
+=======================
+
+Login.razor:
+- Error display: Line 83-88
+- Form validation: Line 30-32
+- Google error handling: Line 388-395
+- HandleLogin try-catch: Line 425-486
+- Manual validation: Line 430-434
+- HTTP response check: Line 455-459
+- Generic catch: Line 481-485
+
+Register.razor:
+- Error display: Line 136-148
+- Conditional validation: Line 22-26
+- Google code processing: Line 526-571
+- HandleRegister try-catch: Line 573-720
+- Google validation: Line 583-594
+- HandleGoogleCallback: Line 722-776
+- Silent Base64 catch: Line 560-563
+
+AuthController.cs:
+- Login endpoint: Line 115-150
+- Register endpoint: Line 473-534
+- ExternalCallback: Line 241-434
+- RegisterWithGoogle: Line 749-864
+- ValidateGoogleIdToken: Line 867-938
+- Bad request returns: Line 49, 56, 121, 158, 268, 276
+- Generic exception handling: Line 430-434, 859-864
+
+UserService.cs:
+- ValidateCredentialsAsync: Line 18-26
+- RegisterUserAsync: Line 68-91
+- Password hashing: Line 107-112
+- Duplicate check: Line 71-74
+
+IMMEDIATE ACTION ITEMS
+======================
+
+1. Fix password hashing - implement BCrypt
+2. Implement JWT signature verification  
+3. Make user creation atomic using database transaction
+4. Change RegisterWithGoogle to return 400/409 instead of 200
+5. Add return URL validation to prevent SSRF
+6. Add rate limiting to auth endpoints (5 attempts/15 minutes)
+7. Add structured logging with ILogger
+8. Remove exception message exposure to clients
+

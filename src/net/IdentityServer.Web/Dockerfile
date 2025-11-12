@@ -12,7 +12,8 @@ COPY ["IdentityServer.Web/", "IdentityServer.Web/"]
 
 # Build and publish the Blazor WebAssembly app
 WORKDIR "/src/IdentityServer.Web"
-RUN dotnet publish "IdentityServer.Web.csproj" -c Release -o /app/publish /p:UseAppHost=false
+ARG BUILD_ENV=Production
+RUN dotnet publish "IdentityServer.Web.csproj" -c Release -o /app/publish /p:UseAppHost=false -p:BlazorEnableCompression=false
 
 # Final runtime stage with Nginx
 FROM nginx:alpine AS final

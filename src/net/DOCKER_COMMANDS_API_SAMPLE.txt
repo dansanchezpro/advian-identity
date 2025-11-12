@@ -29,15 +29,49 @@ docker build --no-cache -t identityserverapi:1.0.0 -f IdentityServer.Api/Dockerf
 # Verificar que la imagen se creó correctamente
 docker images | findstr identityserverapi
 
-# Ejecutar el contenedor localmente
+# Ejecutar el contenedor localmente (básico)
 docker run -d -p 8080:8080 --name identityserver identityserverapi:1.0.0
 
-# Ejecutar con variables de entorno
+# Ejecutar con variables de entorno (configuración completa)
 docker run -d -p 8080:8080 \
   -e ASPNETCORE_ENVIRONMENT=Production \
   -e ASPNETCORE_HTTP_PORTS=8080 \
-  --name identityserver \
+  -e Authentication__Google__ClientId="722037863801-faaq5m9d3o5s0fiqqti0sd2t4hg2co6f.apps.googleusercontent.com" \
+  -e Authentication__Google__ClientSecret="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" \
+  -e JWT__SecretKey="your-secret-key-for-jwt-token-generation-123456789" \
+  -e Cors__AllowedOrigins__0="http://localhost:8081" \
+  -e Cors__AllowedOrigins__1="https://localhost:5173" \
+  -e Cors__AllowedOrigins__2="http://localhost:5173" \
+  -e Cors__AllowedOrigins__3="https://localhost:7000" \
+  -e Cors__AllowedOrigins__4="http://localhost:7000" \
+  --name identityserverapi \
   identityserverapi:1.0.0
+
+Versión para CMD ^:
+docker run -d -p 8080:8080 ^
+  -e ASPNETCORE_ENVIRONMENT=Production ^
+  -e ASPNETCORE_HTTP_PORTS=8080 ^
+  -e Authentication__Google__ClientId="722037863801-faaq5m9d3o5s0fiqqti0sd2t4hg2co6f.apps.googleusercontent.com" ^
+  -e Authentication__Google__ClientSecret="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" ^
+  -e JWT__SecretKey="your-secret-key-for-jwt-token-generation-123456789" ^
+  -e Cors__AllowedOrigins__0="http://localhost:8081" ^
+  -e Cors__AllowedOrigins__1="https://localhost:5173" ^
+  -e Cors__AllowedOrigins__2="http://localhost:5173" ^
+  -e Cors__AllowedOrigins__3="https://localhost:7000" ^
+  -e Cors__AllowedOrigins__4="http://localhost:7000" ^
+  --name identityserverapi ^
+  identityserverapi:1.0.0
+
+
+
+# Ejecutar con archivo de variables de entorno (más seguro)
+# Primero crea un archivo .env con el contenido:
+# ASPNETCORE_ENVIRONMENT=Production
+# ASPNETCORE_HTTP_PORTS=8080
+# Authentication__Google__ClientId=722037863801-faaq5m9d3o5s0fiqqti0sd2t4hg2co6f.apps.googleusercontent.com
+# Authentication__Google__ClientSecret=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
+
+docker run -d -p 8080:8080 --env-file .env --name identityserver identityserverapi:1.0.0
 
 ================================================================================
 2. CREAR IMAGEN Y SUBIRLA A DOCKER HUB
@@ -284,22 +318,129 @@ docker push identityserverapi:latest
 VARIABLES DE ENTORNO IMPORTANTES PARA ASP.NET CORE
 ================================================================================
 
+CONFIGURACIÓN GENERAL:
+----------------------
 ASPNETCORE_ENVIRONMENT        - Development, Staging, Production
 ASPNETCORE_HTTP_PORTS         - Puerto HTTP (ej: 8080)
 ASPNETCORE_HTTPS_PORTS        - Puerto HTTPS (ej: 8443)
 ASPNETCORE_URLS               - URLs completas (ej: http://+:8080)
-ConnectionStrings__Default    - Connection string de base de datos
-JWT__SecretKey               - Clave secreta para JWT
-JWT__Issuer                  - Issuer del JWT
-JWT__Audience                - Audience del JWT
 
-EJEMPLO DE USO:
+CONFIGURACIÓN DE BASE DE DATOS:
+--------------------------------
+ConnectionStrings__DefaultConnection - Connection string de SQL Server
+  Ejemplo: "Server=sqlserver;Database=IdentityDb;User Id=sa;Password=YourPassword123;"
+
+CONFIGURACIÓN DE JWT:
+---------------------
+JWT__SecretKey                - Clave secreta para firmar tokens JWT
+JWT__Issuer                   - Emisor del token (tu dominio/app)
+JWT__Audience                 - Audiencia del token (quién puede usar el token)
+JWT__ExpirationMinutes        - Tiempo de expiración en minutos (default: 60)
+
+CONFIGURACIÓN DE GOOGLE AUTHENTICATION:
+----------------------------------------
+Authentication__Google__ClientId      - Client ID de Google OAuth
+Authentication__Google__ClientSecret  - Client Secret de Google OAuth
+
+CONFIGURACIÓN DE MICROSOFT AUTHENTICATION:
+-------------------------------------------
+Authentication__Microsoft__ClientId      - Client ID de Microsoft OAuth
+Authentication__Microsoft__ClientSecret  - Client Secret de Microsoft OAuth
+
+CONFIGURACIÓN DE CORS:
+----------------------
+Cors__AllowedOrigins__0       - Primer origen permitido
+Cors__AllowedOrigins__1       - Segundo origen permitido
+  Ejemplo: "https://miapp.com"
+
+
+EJEMPLOS DE USO:
+================
+
+1. CONFIGURACIÓN BÁSICA (Development):
+---------------------------------------
+docker run -d -p 8080:8080 \
+  -e ASPNETCORE_ENVIRONMENT=Development \
+  -e ASPNETCORE_HTTP_PORTS=8080 \
+  --name identityserver \
+  identityserverapi:1.0.0
+
+
+2. CONFIGURACIÓN COMPLETA CON GOOGLE AUTH (Production):
+--------------------------------------------------------
 docker run -d -p 8080:8080 \
   -e ASPNETCORE_ENVIRONMENT=Production \
   -e ASPNETCORE_HTTP_PORTS=8080 \
-  -e ConnectionStrings__DefaultConnection="Server=..." \
+  -e Authentication__Google__ClientId="722037863801-faaq5m9d3o5s0fiqqti0sd2t4hg2co6f.apps.googleusercontent.com" \
+  -e Authentication__Google__ClientSecret="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" \
+  -e JWT__SecretKey="MyVerySecretKeyForJWTTokenGeneration123456789" \
+  -e JWT__Issuer="https://identityserver.mycompany.com" \
+  -e JWT__Audience="https://myapp.mycompany.com" \
+  -e JWT__ExpirationMinutes=60 \
   --name identityserver \
   identityserverapi:1.0.0
+
+
+3. CONFIGURACIÓN CON SQL SERVER:
+---------------------------------
+docker run -d -p 8080:8080 \
+  -e ASPNETCORE_ENVIRONMENT=Production \
+  -e ASPNETCORE_HTTP_PORTS=8080 \
+  -e ConnectionStrings__DefaultConnection="Server=sqlserver;Database=IdentityDb;User Id=sa;Password=YourPassword123;TrustServerCertificate=True" \
+  -e Authentication__Google__ClientId="722037863801-faaq5m9d3o5s0fiqqti0sd2t4hg2co6f.apps.googleusercontent.com" \
+  -e Authentication__Google__ClientSecret="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" \
+  --name identityserver \
+  identityserverapi:1.0.0
+
+
+4. USANDO ARCHIVO .env (RECOMENDADO PARA PRODUCCIÓN):
+------------------------------------------------------
+# Crear archivo .env con el siguiente contenido:
+
+ASPNETCORE_ENVIRONMENT=Production
+ASPNETCORE_HTTP_PORTS=8080
+Authentication__Google__ClientId=722037863801-faaq5m9d3o5s0fiqqti0sd2t4hg2co6f.apps.googleusercontent.com
+Authentication__Google__ClientSecret=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
+JWT__SecretKey=MyVerySecretKeyForJWTTokenGeneration123456789
+JWT__Issuer=https://identityserver.mycompany.com
+JWT__Audience=https://myapp.mycompany.com
+JWT__ExpirationMinutes=60
+ConnectionStrings__DefaultConnection=Server=sqlserver;Database=IdentityDb;User Id=sa;Password=YourPassword123;TrustServerCertificate=True
+Cors__AllowedOrigins__0=https://myapp.mycompany.com
+Cors__AllowedOrigins__1=https://admin.mycompany.com
+
+# Ejecutar con el archivo .env:
+docker run -d -p 8080:8080 --env-file .env --name identityserver identityserverapi:1.0.0
+
+
+5. CONFIGURACIÓN CON GOOGLE Y MICROSOFT AUTH:
+----------------------------------------------
+docker run -d -p 8080:8080 \
+  -e ASPNETCORE_ENVIRONMENT=Production \
+  -e ASPNETCORE_HTTP_PORTS=8080 \
+  -e Authentication__Google__ClientId="722037863801-faaq5m9d3o5s0fiqqti0sd2t4hg2co6f.apps.googleusercontent.com" \
+  -e Authentication__Google__ClientSecret="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" \
+  -e Authentication__Microsoft__ClientId="tu-microsoft-client-id" \
+  -e Authentication__Microsoft__ClientSecret="tu-microsoft-client-secret" \
+  --name identityserver \
+  identityserverapi:1.0.0
+
+
+NOTAS IMPORTANTES:
+------------------
+⚠️  NUNCA subas archivos .env o variables con secretos a repositorios Git
+⚠️  En producción, usa servicios de secretos como:
+    - Azure Key Vault
+    - AWS Secrets Manager
+    - Docker Secrets (con Docker Swarm)
+    - Kubernetes Secrets
+
+⚠️  Los secretos en las credenciales de Google mostradas arriba son EJEMPLOS.
+    En producción SIEMPRE usa tus propias credenciales y mantenlas seguras.
+
+💡  Para variables sensibles, considera usar Docker Secrets:
+    echo "mi-secreto" | docker secret create google_client_secret -
+    docker service create --secret google_client_secret identityserverapi:1.0.0
 
 ================================================================================
 TROUBLESHOOTING

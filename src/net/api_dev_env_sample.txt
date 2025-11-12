@@ -1,0 +1,10 @@
+ASPNETCORE_ENVIRONMENT=Production
+ASPNETCORE_HTTP_PORTS=8080
+Authentication__Google__ClientId=722037863801-faaq5m9d3o5s0fiqqti0sd2t4hg2co6f.apps.googleusercontent.com
+Authentication__Google__ClientSecret=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
+JWT__SecretKey=your-secret-key-for-jwt-token-generation-123456789
+Cors__AllowedOrigins__0=http://localhost:8081
+Cors__AllowedOrigins__1=https://localhost:5173
+Cors__AllowedOrigins__2=http://localhost:5173
+Cors__AllowedOrigins__3=https://localhost:7000
+Cors__AllowedOrigins__4=http://localhost:7000

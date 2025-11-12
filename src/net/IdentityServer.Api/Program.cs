@@ -42,6 +42,7 @@ builder.Services.AddCors(options =>
         options.AddDefaultPolicy(policy =>
         {
             policy.WithOrigins(
+                      "http://localhost:8081",
                       "https://localhost:7000",  // Identity UI
                       "http://localhost:7000",
                       "https://localhost:7001",  // Sample App 1

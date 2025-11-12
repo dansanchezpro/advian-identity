@@ -1,0 +1,587 @@
+================================================================================
+DOCUMENTACIÓN DE COMANDOS DOCKER - IDENTITY SERVER WEB (BLAZOR WASM)
+================================================================================
+
+PROYECTO: IdentityServer.Web (Blazor WebAssembly)
+TIPO: Single Page Application (SPA) - Cliente estático
+SERVIDOR: Nginx Alpine
+PUERTO: 8080
+
+DIRECTORIO BASE PARA EJECUTAR COMANDOS:
+  C:\SC\Code\advian-identity\src\net
+
+NOTA IMPORTANTE:
+  - Blazor WebAssembly NO es una aplicación servidor .NET, es una SPA que
+    corre completamente en el navegador del cliente.
+  - El contenedor usa Nginx para servir los archivos estáticos (HTML, CSS, JS, WASM).
+  - Visual Studio NO puede depurar este contenedor porque no hay proceso .NET corriendo
+    (solo nginx sirviendo archivos estáticos).
+  - Para desarrollo, usa los perfiles "http" o "https" normales de Visual Studio.
+  - Para producción/testing, usa Docker con los comandos de este documento.
+
+================================================================================
+1. CREAR IMAGEN Y MANTENERLA EN DOCKER DESKTOP (LOCAL)
+================================================================================
+
+# Navegar al directorio correcto
+cd C:\SC\Code\advian-identity\src\net
+
+# Construir la imagen para producción con versión específica
+docker build -t identityserverweb:1.0.0 -f IdentityServer.Web/Dockerfile .
+
+# Construir con el tag latest
+docker build -t identityserverweb:latest -f IdentityServer.Web/Dockerfile .
+
+# Construir sin usar caché (build limpio desde cero)
+docker build --no-cache -t identityserverweb:1.0.0 -f IdentityServer.Web/Dockerfile .
+
+# Verificar que la imagen se creó correctamente
+docker images | findstr identityserverweb
+
+# Ejecutar el contenedor localmente
+docker run -d -p 8080:8080 --name identityweb identityserverweb:1.0.0
+
+# Abrir en el navegador
+start http://localhost:8080
+
+# Ejecutar con nombre personalizado y auto-eliminar al detener
+docker run -d -p 8080:8080 --name identityweb-dev --rm identityserverweb:1.0.0
+
+# Ejecutar exponiendo múltiples puertos
+docker run -d -p 8080:8080 -p 8081:8080 --name identityweb identityserverweb:1.0.0
+
+================================================================================
+2. CREAR IMAGEN Y SUBIRLA A DOCKER HUB
+================================================================================
+
+# Paso 1: Login a Docker Hub
+docker login
+# Te pedirá:
+#   Username: tu_usuario_dockerhub
+#   Password: tu_password_dockerhub
+
+# Paso 2: Construir la imagen con tu usuario de Docker Hub como prefijo
+docker build -t tuusuario/identityserverweb:1.0.0 -f IdentityServer.Web/Dockerfile .
+
+# Paso 3: Opcionalmente, tagear también como latest
+docker tag tuusuario/identityserverweb:1.0.0 tuusuario/identityserverweb:latest
+
+# Paso 4: Subir la imagen a Docker Hub
+docker push tuusuario/identityserverweb:1.0.0
+docker push tuusuario/identityserverweb:latest
+
+# Paso 5: Verificar en Docker Hub
+# Visita: https://hub.docker.com/r/tuusuario/identityserverweb
+
+# Paso 6: Descargar la imagen desde cualquier máquina
+docker pull tuusuario/identityserverweb:1.0.0
+
+# Paso 7: Ejecutar la imagen descargada
+docker run -d -p 8080:8080 --name identityweb tuusuario/identityserverweb:1.0.0
+
+# Paso 8: Logout (opcional, por seguridad)
+docker logout
+
+================================================================================
+3. CREAR IMAGEN Y SUBIRLA A UN REGISTRY CUSTOM
+================================================================================
+
+EJEMPLO CON AZURE CONTAINER REGISTRY (ACR):
+--------------------------------------------
+
+# Paso 1: Login al registry de Azure
+docker login miregistry.azurecr.io
+# O usar Azure CLI
+az acr login --name miregistry
+
+# Paso 2: Construir la imagen con el prefijo del registry
+docker build -t miregistry.azurecr.io/identityserverweb:1.0.0 -f IdentityServer.Web/Dockerfile .
+
+# Paso 3: Tagear también como latest (opcional)
+docker tag miregistry.azurecr.io/identityserverweb:1.0.0 miregistry.azurecr.io/identityserverweb:latest
+
+# Paso 4: Subir al registry
+docker push miregistry.azurecr.io/identityserverweb:1.0.0
+docker push miregistry.azurecr.io/identityserverweb:latest
+
+# Paso 5: Listar imágenes en ACR (con Azure CLI)
+az acr repository list --name miregistry --output table
+az acr repository show-tags --name miregistry --repository identityserverweb --output table
+
+# Paso 6: Ejecutar desde ACR
+docker run -d -p 8080:8080 --name identityweb miregistry.azurecr.io/identityserverweb:1.0.0
+
+
+EJEMPLO CON REGISTRY PRIVADO GENÉRICO:
+---------------------------------------
+
+# Paso 1: Login al registry custom
+docker login registry.miempresa.com
+# O con credenciales directas
+docker login registry.miempresa.com -u usuario -p password
+
+# Paso 2: Construir la imagen con el prefijo del registry
+docker build -t registry.miempresa.com/identityserverweb:1.0.0 -f IdentityServer.Web/Dockerfile .
+
+# Paso 3: Tagear también como latest (opcional)
+docker tag registry.miempresa.com/identityserverweb:1.0.0 registry.miempresa.com/identityserverweb:latest
+
+# Paso 4: Subir al registry
+docker push registry.miempresa.com/identityserverweb:1.0.0
+docker push registry.miempresa.com/identityserverweb:latest
+
+# Paso 5: Descargar desde el registry
+docker pull registry.miempresa.com/identityserverweb:1.0.0
+
+# Paso 6: Ejecutar
+docker run -d -p 8080:8080 --name identityweb registry.miempresa.com/identityserverweb:1.0.0
+
+
+EJEMPLO CON AWS ELASTIC CONTAINER REGISTRY (ECR):
+--------------------------------------------------
+
+# Paso 1: Autenticarse con AWS ECR
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 123456789012.dkr.ecr.us-east-1.amazonaws.com
+
+# Paso 2: Construir la imagen
+docker build -t 123456789012.dkr.ecr.us-east-1.amazonaws.com/identityserverweb:1.0.0 -f IdentityServer.Web/Dockerfile .
+
+# Paso 3: Subir al ECR
+docker push 123456789012.dkr.ecr.us-east-1.amazonaws.com/identityserverweb:1.0.0
+
+# Paso 4: Ejecutar
+docker run -d -p 8080:8080 --name identityweb 123456789012.dkr.ecr.us-east-1.amazonaws.com/identityserverweb:1.0.0
+
+
+EJEMPLO CON GOOGLE CONTAINER REGISTRY (GCR):
+---------------------------------------------
+
+# Paso 1: Autenticarse con GCR
+gcloud auth configure-docker
+
+# Paso 2: Construir la imagen
+docker build -t gcr.io/mi-proyecto/identityserverweb:1.0.0 -f IdentityServer.Web/Dockerfile .
+
+# Paso 3: Subir al GCR
+docker push gcr.io/mi-proyecto/identityserverweb:1.0.0
+
+# Paso 4: Ejecutar
+docker run -d -p 8080:8080 --name identityweb gcr.io/mi-proyecto/identityserverweb:1.0.0
+
+================================================================================
+COMANDOS ÚTILES PARA GESTIÓN DE IMÁGENES Y CONTENEDORES
+================================================================================
+
+IMÁGENES:
+---------
+# Ver todas las imágenes locales
+docker images
+
+# Ver imágenes filtradas
+docker images | findstr identityserverweb
+
+# Eliminar una imagen específica
+docker rmi identityserverweb:1.0.0
+
+# Eliminar múltiples imágenes
+docker rmi identityserverweb:1.0.0 identityserverweb:latest
+
+# Eliminar imagen forzosamente (si tiene contenedores asociados)
+docker rmi -f identityserverweb:1.0.0
+
+# Eliminar imágenes huérfanas (<none>:<none>)
+docker image prune
+
+# Eliminar todas las imágenes no utilizadas
+docker image prune -a
+
+# Ver información detallada de una imagen
+docker inspect identityserverweb:1.0.0
+
+# Ver historial de capas de una imagen
+docker history identityserverweb:1.0.0
+
+# Analizar el tamaño de la imagen por capas
+docker history identityserverweb:1.0.0 --human --no-trunc
+
+# Guardar imagen como archivo tar
+docker save -o identityserverweb.tar identityserverweb:1.0.0
+
+# Cargar imagen desde archivo tar
+docker load -i identityserverweb.tar
+
+
+CONTENEDORES:
+-------------
+# Ver contenedores en ejecución
+docker ps
+
+# Ver todos los contenedores (incluso detenidos)
+docker ps -a
+
+# Crear y ejecutar un contenedor
+docker run -d -p 8080:8080 --name identityweb identityserverweb:1.0.0
+
+# Detener un contenedor
+docker stop identityweb
+
+# Iniciar un contenedor detenido
+docker start identityweb
+
+# Reiniciar un contenedor
+docker restart identityweb
+
+# Eliminar un contenedor
+docker rm identityweb
+
+# Eliminar un contenedor en ejecución (forzar)
+docker rm -f identityweb
+
+# Eliminar todos los contenedores detenidos
+docker container prune
+
+# Ver logs de un contenedor
+docker logs identityweb
+
+# Ver logs en tiempo real (follow)
+docker logs -f identityweb
+
+# Ver solo los últimos 100 logs
+docker logs --tail 100 identityweb
+
+# Ver estadísticas de recursos del contenedor
+docker stats identityweb
+
+# Ejecutar un comando dentro del contenedor (shell interactivo)
+docker exec -it identityweb sh
+
+# Listar archivos dentro del contenedor
+docker exec identityweb ls -la /usr/share/nginx/html
+
+# Ver la configuración de nginx dentro del contenedor
+docker exec identityweb cat /etc/nginx/nginx.conf
+
+# Copiar archivos desde/hacia el contenedor
+docker cp identityweb:/usr/share/nginx/html/index.html ./index.html
+docker cp ./custom-config.json identityweb:/usr/share/nginx/html/config.json
+
+# Inspeccionar un contenedor (ver toda la configuración)
+docker inspect identityweb
+
+# Ver procesos dentro del contenedor
+docker top identityweb
+
+# Ver el estado del healthcheck
+docker inspect --format='{{json .State.Health}}' identityweb | jq
+
+
+TAGS Y RE-TAGGING:
+------------------
+# Crear un nuevo tag para una imagen existente
+docker tag identityserverweb:1.0.0 identityserverweb:latest
+
+# Crear tag para subir a registry
+docker tag identityserverweb:1.0.0 tuusuario/identityserverweb:1.0.0
+
+# Crear múltiples tags a la vez
+docker tag identityserverweb:1.0.0 identityserverweb:1.0
+docker tag identityserverweb:1.0.0 identityserverweb:1
+docker tag identityserverweb:1.0.0 identityserverweb:latest
+
+
+LIMPIEZA GENERAL:
+-----------------
+# Eliminar contenedores detenidos, redes no usadas, imágenes huérfanas y caché
+docker system prune
+
+# Eliminar TODO (contenedores, imágenes, volúmenes, redes)
+docker system prune -a --volumes
+
+# Ver espacio usado por Docker
+docker system df
+
+# Ver espacio usado en detalle
+docker system df -v
+
+================================================================================
+CONFIGURACIÓN DE NGINX DENTRO DEL CONTENEDOR
+================================================================================
+
+VERIFICAR CONFIGURACIÓN DE NGINX:
+----------------------------------
+# Ver la configuración actual
+docker exec identityweb cat /etc/nginx/nginx.conf
+
+# Probar si la configuración de nginx es válida
+docker exec identityweb nginx -t
+
+# Recargar nginx después de cambios (si modificaste archivos)
+docker exec identityweb nginx -s reload
+
+# Ver versión de nginx
+docker exec identityweb nginx -v
+
+
+ARCHIVOS IMPORTANTES DENTRO DEL CONTENEDOR:
+--------------------------------------------
+/usr/share/nginx/html/           - Archivos estáticos de Blazor WASM
+/usr/share/nginx/html/index.html - Página principal
+/usr/share/nginx/html/_framework/ - Archivos del framework Blazor (.wasm, .dll)
+/etc/nginx/nginx.conf            - Configuración de nginx
+/var/log/nginx/access.log        - Logs de acceso
+/var/log/nginx/error.log         - Logs de errores
+
+
+VER LOGS DE NGINX:
+------------------
+# Ver logs de acceso
+docker exec identityweb cat /var/log/nginx/access.log
+
+# Ver logs de errores
+docker exec identityweb cat /var/log/nginx/error.log
+
+# Seguir logs en tiempo real
+docker exec identityweb tail -f /var/log/nginx/access.log
+
+================================================================================
+DEBUGGING Y TROUBLESHOOTING
+================================================================================
+
+PROBLEMA: El contenedor no inicia
+SOLUCIÓN:
+  docker logs identityweb
+  # Verifica errores de nginx
+
+PROBLEMA: Error 403 Forbidden
+SOLUCIÓN:
+  # Verifica permisos de archivos
+  docker exec identityweb ls -la /usr/share/nginx/html
+  # Asegúrate de que el usuario appuser tenga permisos
+
+PROBLEMA: Error 404 Not Found en rutas de la SPA
+SOLUCIÓN:
+  # Verifica que nginx.conf tenga la configuración correcta:
+  # try_files $uri $uri/ /index.html =404;
+  docker exec identityweb cat /etc/nginx/nginx.conf
+
+PROBLEMA: Los archivos .wasm no se descargan
+SOLUCIÓN:
+  # Verifica que nginx tenga el MIME type correcto para .wasm
+  docker exec identityweb cat /etc/nginx/nginx.conf | grep wasm
+
+PROBLEMA: La aplicación no carga en el navegador
+SOLUCIÓN:
+  # 1. Verifica que el contenedor esté corriendo
+  docker ps
+
+  # 2. Verifica el healthcheck
+  docker inspect --format='{{json .State.Health}}' identityweb
+
+  # 3. Verifica los logs
+  docker logs identityweb
+
+  # 4. Prueba el endpoint de salud
+  curl http://localhost:8080/health
+
+  # 5. Verifica que los archivos estén presentes
+  docker exec identityweb ls -la /usr/share/nginx/html
+
+PROBLEMA: Error CORS al conectar con el API
+SOLUCIÓN:
+  # El API debe tener configurado CORS para permitir el origen del Web
+  # Verifica la configuración CORS en IdentityServer.Api/Program.cs
+
+PROBLEMA: La imagen es muy grande
+SOLUCIÓN:
+  # Ya estás usando alpine (muy pequeña)
+  # Verifica que no estés incluyendo archivos innecesarios
+  # Crea un .dockerignore en IdentityServer.Web/
+  docker history identityserverweb:1.0.0 --human
+
+PROBLEMA: Los cambios en el código no se reflejan
+SOLUCIÓN:
+  # Reconstruye la imagen sin caché
+  docker build --no-cache -t identityserverweb:1.0.0 -f IdentityServer.Web/Dockerfile .
+
+  # Elimina el contenedor viejo
+  docker rm -f identityweb
+
+  # Crea un nuevo contenedor
+  docker run -d -p 8080:8080 --name identityweb identityserverweb:1.0.0
+
+PROBLEMA: No puedo depurar la aplicación Blazor en el contenedor
+SOLUCIÓN:
+  # CORRECTO: Blazor WASM corre en el NAVEGADOR, no en el servidor
+  # Para depurar:
+  # 1. Abre las DevTools del navegador (F12)
+  # 2. Presiona Shift+Alt+D para habilitar debugging
+  # 3. O ejecuta localmente con Visual Studio (perfil http/https)
+
+================================================================================
+CONVENCIONES DE VERSIONADO
+================================================================================
+
+TAGS RECOMENDADOS:
+------------------
+dev_1.0.0         - Versión de desarrollo
+1.0.0             - Versión de producción
+1.0               - Versión menor (apunta a 1.0.x más reciente)
+1                 - Versión mayor (apunta a 1.x.x más reciente)
+latest            - Última versión estable
+staging_1.0.0     - Versión en ambiente de staging
+prod_1.0.0        - Versión en producción
+
+EJEMPLO DE MÚLTIPLES TAGS:
+---------------------------
+docker build -t identityserverweb:1.0.0 -f IdentityServer.Web/Dockerfile .
+docker tag identityserverweb:1.0.0 identityserverweb:1.0
+docker tag identityserverweb:1.0.0 identityserverweb:1
+docker tag identityserverweb:1.0.0 identityserverweb:latest
+
+docker push tuusuario/identityserverweb:1.0.0
+docker push tuusuario/identityserverweb:1.0
+docker push tuusuario/identityserverweb:1
+docker push tuusuario/identityserverweb:latest
+
+================================================================================
+INTEGRACIÓN CON EL API (IDENTITY SERVER)
+================================================================================
+
+EJECUTAR AMBOS CONTENEDORES JUNTOS:
+------------------------------------
+
+# Crear una red Docker personalizada
+docker network create identity-network
+
+# Ejecutar el API
+docker run -d \
+  --name identityserver-api \
+  --network identity-network \
+  -p 8080:8080 \
+  identityserverapi:1.0.0
+
+# Ejecutar el Web
+docker run -d \
+  --name identityserver-web \
+  --network identity-network \
+  -p 8081:8080 \
+  identityserverweb:1.0.0
+
+# Ahora ambos contenedores pueden comunicarse:
+# - API accesible en: http://localhost:8080
+# - Web accesible en: http://localhost:8081
+# - Dentro de la red, el Web puede llamar al API usando: http://identityserver-api:8080
+
+
+VARIABLES DE ENTORNO PARA CONFIGURAR LA URL DEL API:
+-----------------------------------------------------
+# Si tu aplicación Blazor necesita saber la URL del API
+
+# Opción 1: Archivo de configuración (appsettings.json)
+# Modifica wwwroot/appsettings.json antes de construir la imagen
+
+# Opción 2: Usar variables de entorno en runtime
+# Nota: Blazor WASM no puede leer variables de entorno del contenedor
+# porque corre en el navegador del cliente, no en el servidor
+
+# Opción 3: Configurar la URL del API en el código JavaScript
+# Crea un archivo wwwroot/config.js con la URL del API
+
+================================================================================
+OPTIMIZACIÓN DE LA IMAGEN
+================================================================================
+
+TAMAÑO ESPERADO DE LA IMAGEN:
+------------------------------
+Imagen base nginx:alpine    ~25 MB
+Aplicación Blazor WASM      ~5-15 MB (depende de las dependencias)
+Total aproximado:           ~30-40 MB
+
+REDUCIR EL TAMAÑO:
+------------------
+# 1. Crear archivo .dockerignore en IdentityServer.Web/
+# Excluir: bin/, obj/, .vs/, *.user, etc.
+
+# 2. Verificar que no se copien archivos innecesarios
+docker history identityserverweb:1.0.0 --human --no-trunc
+
+# 3. Habilitar compresión en dotnet publish
+# (Ya está habilitado por defecto en .NET 9)
+
+# 4. Usar Brotli compression (mejor que gzip)
+# (Ya configurado en tu nginx.conf)
+
+================================================================================
+COMANDOS RÁPIDOS DE DESARROLLO
+================================================================================
+
+# Build rápido y ejecución
+docker build -t identityserverweb:dev -f IdentityServer.Web/Dockerfile . && docker run -d -p 8080:8080 --name identityweb-dev --rm identityserverweb:dev
+
+# Rebuild completo y ejecución
+docker rm -f identityweb; docker rmi identityserverweb:dev; docker build --no-cache -t identityserverweb:dev -f IdentityServer.Web/Dockerfile . && docker run -d -p 8080:8080 --name identityweb --rm identityserverweb:dev
+
+# Ver logs en tiempo real
+docker logs -f identityweb
+
+# Restart rápido
+docker restart identityweb && docker logs -f identityweb
+
+# Limpiar todo (contenedores, imágenes, caché)
+docker rm -f identityweb; docker rmi identityserverweb:dev; docker system prune -f
+
+================================================================================
+HEALTHCHECK
+================================================================================
+
+VERIFICAR ESTADO DE SALUD:
+---------------------------
+# Ver el estado del healthcheck
+docker inspect --format='{{json .State.Health}}' identityweb
+
+# Ver solo el status
+docker inspect --format='{{.State.Health.Status}}' identityweb
+
+# Ver el log completo del healthcheck
+docker inspect --format='{{json .State.Health.Log}}' identityweb | jq
+
+# Probar manualmente el endpoint de salud
+curl http://localhost:8080/health
+wget -O- http://localhost:8080/health
+
+# Ver cuándo fue el último healthcheck
+docker inspect --format='{{.State.Health.Log}}' identityweb
+
+================================================================================
+NOTAS IMPORTANTES SOBRE BLAZOR WEBASSEMBLY
+================================================================================
+
+1. DIFERENCIAS CON BLAZOR SERVER:
+   - Blazor WASM NO corre en el servidor, corre en el navegador
+   - El contenedor solo sirve archivos estáticos (HTML, CSS, JS, WASM)
+   - No hay proceso .NET corriendo en el contenedor (solo nginx)
+   - No puedes usar Visual Studio para depurar el contenedor Docker
+
+2. DEPURACIÓN:
+   - Usa las DevTools del navegador (F12)
+   - Presiona Shift+Alt+D para habilitar debugging de Blazor
+   - O ejecuta localmente con Visual Studio (sin Docker)
+
+3. CONFIGURACIÓN:
+   - Los archivos de configuración deben estar en wwwroot/
+   - No puedes usar variables de entorno del servidor
+   - Toda la configuración debe estar en archivos estáticos o en el código
+
+4. DESPLIEGUE:
+   - Puedes desplegar en cualquier servidor web estático
+   - No necesitas .NET runtime en el servidor
+   - Nginx, Apache, IIS, Azure Static Web Apps, etc.
+
+5. TAMAÑO DE DESCARGA:
+   - La primera carga descarga todos los archivos WASM y DLLs
+   - Usa caching apropiado (ya configurado en nginx.conf)
+   - Los archivos se cachean en el navegador del cliente
+
+================================================================================
+FIN DE LA DOCUMENTACIÓN
+================================================================================

@@ -1,0 +1,332 @@
+================================================================================
+DOCUMENTACIÓN DE COMANDOS DOCKER - IDENTITY SERVER API
+================================================================================
+
+DIRECTORIO BASE PARA EJECUTAR COMANDOS:
+  C:\SC\Code\advian-identity\src\net
+
+NOTA IMPORTANTE:
+  Todos los comandos docker build deben ejecutarse desde el directorio base
+  (src/net) porque el Dockerfile usa rutas relativas a los proyectos
+  IdentityServer.Api y IdentityServer.Core.
+
+================================================================================
+1. CREAR IMAGEN Y MANTENERLA EN DOCKER DESKTOP (LOCAL)
+================================================================================
+
+# Navegar al directorio correcto
+cd C:\SC\Code\advian-identity\src\net
+
+# Construir la imagen para producción con versión específica
+docker build -t identityserverapi:1.0.0 -f IdentityServer.Api/Dockerfile .
+
+# Construir con el tag latest
+docker build -t identityserverapi:latest -f IdentityServer.Api/Dockerfile .
+
+# Construir sin usar caché (build limpio desde cero)
+docker build --no-cache -t identityserverapi:1.0.0 -f IdentityServer.Api/Dockerfile .
+
+# Verificar que la imagen se creó correctamente
+docker images | findstr identityserverapi
+
+# Ejecutar el contenedor localmente
+docker run -d -p 8080:8080 --name identityserver identityserverapi:1.0.0
+
+# Ejecutar con variables de entorno
+docker run -d -p 8080:8080 \
+  -e ASPNETCORE_ENVIRONMENT=Production \
+  -e ASPNETCORE_HTTP_PORTS=8080 \
+  --name identityserver \
+  identityserverapi:1.0.0
+
+================================================================================
+2. CREAR IMAGEN Y SUBIRLA A DOCKER HUB
+================================================================================
+
+# Paso 1: Login a Docker Hub
+docker login
+# Te pedirá:
+#   Username: tu_usuario_dockerhub
+#   Password: tu_password_dockerhub
+
+# Paso 2: Construir la imagen con tu usuario de Docker Hub como prefijo
+docker build -t tuusuario/identityserverapi:1.0.0 -f IdentityServer.Api/Dockerfile .
+
+# Paso 3: Opcionalmente, tagear también como latest
+docker tag tuusuario/identityserverapi:1.0.0 tuusuario/identityserverapi:latest
+
+# Paso 4: Subir la imagen a Docker Hub
+docker push tuusuario/identityserverapi:1.0.0
+docker push tuusuario/identityserverapi:latest
+
+# Paso 5: Verificar en Docker Hub
+# Visita: https://hub.docker.com/r/tuusuario/identityserverapi
+
+# Paso 6: Descargar la imagen desde cualquier máquina
+docker pull tuusuario/identityserverapi:1.0.0
+
+# Paso 7: Logout (opcional, por seguridad)
+docker logout
+
+================================================================================
+3. CREAR IMAGEN Y SUBIRLA A UN REGISTRY CUSTOM
+================================================================================
+
+EJEMPLO CON AZURE CONTAINER REGISTRY (ACR):
+--------------------------------------------
+
+# Paso 1: Login al registry de Azure
+docker login miregistry.azurecr.io
+# O usar Azure CLI
+az acr login --name miregistry
+
+# Paso 2: Construir la imagen con el prefijo del registry
+docker build -t miregistry.azurecr.io/identityserverapi:1.0.0 -f IdentityServer.Api/Dockerfile .
+
+# Paso 3: Tagear también como latest (opcional)
+docker tag miregistry.azurecr.io/identityserverapi:1.0.0 miregistry.azurecr.io/identityserverapi:latest
+
+# Paso 4: Subir al registry
+docker push miregistry.azurecr.io/identityserverapi:1.0.0
+docker push miregistry.azurecr.io/identityserverapi:latest
+
+# Paso 5: Listar imágenes en ACR (con Azure CLI)
+az acr repository list --name miregistry --output table
+az acr repository show-tags --name miregistry --repository identityserverapi --output table
+
+
+EJEMPLO CON REGISTRY PRIVADO GENÉRICO:
+---------------------------------------
+
+# Paso 1: Login al registry custom
+docker login registry.miempresa.com
+# O con credenciales directas
+docker login registry.miempresa.com -u usuario -p password
+
+# Paso 2: Construir la imagen con el prefijo del registry
+docker build -t registry.miempresa.com/identityserverapi:1.0.0 -f IdentityServer.Api/Dockerfile .
+
+# Paso 3: Tagear también como latest (opcional)
+docker tag registry.miempresa.com/identityserverapi:1.0.0 registry.miempresa.com/identityserverapi:latest
+
+# Paso 4: Subir al registry
+docker push registry.miempresa.com/identityserverapi:1.0.0
+docker push registry.miempresa.com/identityserverapi:latest
+
+# Paso 5: Descargar desde el registry
+docker pull registry.miempresa.com/identityserverapi:1.0.0
+
+
+EJEMPLO CON AWS ELASTIC CONTAINER REGISTRY (ECR):
+--------------------------------------------------
+
+# Paso 1: Autenticarse con AWS ECR
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 123456789012.dkr.ecr.us-east-1.amazonaws.com
+
+# Paso 2: Construir la imagen
+docker build -t 123456789012.dkr.ecr.us-east-1.amazonaws.com/identityserverapi:1.0.0 -f IdentityServer.Api/Dockerfile .
+
+# Paso 3: Subir al ECR
+docker push 123456789012.dkr.ecr.us-east-1.amazonaws.com/identityserverapi:1.0.0
+
+
+EJEMPLO CON GOOGLE CONTAINER REGISTRY (GCR):
+---------------------------------------------
+
+# Paso 1: Autenticarse con GCR
+gcloud auth configure-docker
+
+# Paso 2: Construir la imagen
+docker build -t gcr.io/mi-proyecto/identityserverapi:1.0.0 -f IdentityServer.Api/Dockerfile .
+
+# Paso 3: Subir al GCR
+docker push gcr.io/mi-proyecto/identityserverapi:1.0.0
+
+================================================================================
+COMANDOS ÚTILES PARA GESTIÓN DE IMÁGENES Y CONTENEDORES
+================================================================================
+
+IMÁGENES:
+---------
+# Ver todas las imágenes locales
+docker images
+
+# Ver imágenes filtradas
+docker images | findstr identityserverapi
+
+# Eliminar una imagen específica
+docker rmi identityserverapi:1.0.0
+
+# Eliminar múltiples imágenes
+docker rmi identityserverapi:1.0.0 identityserverapi:latest
+
+# Eliminar imagen forzosamente (si tiene contenedores asociados)
+docker rmi -f identityserverapi:1.0.0
+
+# Eliminar imágenes huérfanas (<none>:<none>)
+docker image prune
+
+# Eliminar todas las imágenes no utilizadas
+docker image prune -a
+
+# Ver información detallada de una imagen
+docker inspect identityserverapi:1.0.0
+
+# Ver historial de capas de una imagen
+docker history identityserverapi:1.0.0
+
+# Guardar imagen como archivo tar
+docker save -o identityserverapi.tar identityserverapi:1.0.0
+
+# Cargar imagen desde archivo tar
+docker load -i identityserverapi.tar
+
+
+CONTENEDORES:
+-------------
+# Ver contenedores en ejecución
+docker ps
+
+# Ver todos los contenedores (incluso detenidos)
+docker ps -a
+
+# Crear y ejecutar un contenedor
+docker run -d -p 8080:8080 --name identityserver identityserverapi:1.0.0
+
+# Detener un contenedor
+docker stop identityserver
+
+# Iniciar un contenedor detenido
+docker start identityserver
+
+# Reiniciar un contenedor
+docker restart identityserver
+
+# Eliminar un contenedor
+docker rm identityserver
+
+# Eliminar un contenedor en ejecución (forzar)
+docker rm -f identityserver
+
+# Eliminar todos los contenedores detenidos
+docker container prune
+
+# Ver logs de un contenedor
+docker logs identityserver
+
+# Ver logs en tiempo real (follow)
+docker logs -f identityserver
+
+# Ver estadísticas de recursos del contenedor
+docker stats identityserver
+
+# Ejecutar un comando dentro del contenedor
+docker exec -it identityserver sh
+
+# Copiar archivos desde/hacia el contenedor
+docker cp identityserver:/app/appsettings.json ./appsettings.json
+docker cp ./config.json identityserver:/app/config.json
+
+# Inspeccionar un contenedor
+docker inspect identityserver
+
+# Ver procesos dentro del contenedor
+docker top identityserver
+
+
+TAGS Y RE-TAGGING:
+------------------
+# Crear un nuevo tag para una imagen existente
+docker tag identityserverapi:1.0.0 identityserverapi:latest
+
+# Crear tag para subir a registry
+docker tag identityserverapi:1.0.0 tuusuario/identityserverapi:1.0.0
+
+
+LIMPIEZA GENERAL:
+-----------------
+# Eliminar contenedores detenidos, redes no usadas, imágenes huérfanas y caché
+docker system prune
+
+# Eliminar TODO (contenedores, imágenes, volúmenes, redes)
+docker system prune -a --volumes
+
+# Ver espacio usado por Docker
+docker system df
+
+================================================================================
+CONVENCIONES DE VERSIONADO
+================================================================================
+
+TAGS RECOMENDADOS:
+------------------
+dev_1.0.0         - Versión de desarrollo
+1.0.0             - Versión de producción
+1.0               - Versión menor (apunta a 1.0.x más reciente)
+1                 - Versión mayor (apunta a 1.x.x más reciente)
+latest            - Última versión estable
+staging_1.0.0     - Versión en ambiente de staging
+prod_1.0.0        - Versión en producción
+
+EJEMPLO DE MÚLTIPLES TAGS:
+---------------------------
+docker build -t identityserverapi:1.0.0 -f IdentityServer.Api/Dockerfile .
+docker tag identityserverapi:1.0.0 identityserverapi:1.0
+docker tag identityserverapi:1.0.0 identityserverapi:1
+docker tag identityserverapi:1.0.0 identityserverapi:latest
+
+docker push identityserverapi:1.0.0
+docker push identityserverapi:1.0
+docker push identityserverapi:1
+docker push identityserverapi:latest
+
+================================================================================
+VARIABLES DE ENTORNO IMPORTANTES PARA ASP.NET CORE
+================================================================================
+
+ASPNETCORE_ENVIRONMENT        - Development, Staging, Production
+ASPNETCORE_HTTP_PORTS         - Puerto HTTP (ej: 8080)
+ASPNETCORE_HTTPS_PORTS        - Puerto HTTPS (ej: 8443)
+ASPNETCORE_URLS               - URLs completas (ej: http://+:8080)
+ConnectionStrings__Default    - Connection string de base de datos
+JWT__SecretKey               - Clave secreta para JWT
+JWT__Issuer                  - Issuer del JWT
+JWT__Audience                - Audience del JWT
+
+EJEMPLO DE USO:
+docker run -d -p 8080:8080 \
+  -e ASPNETCORE_ENVIRONMENT=Production \
+  -e ASPNETCORE_HTTP_PORTS=8080 \
+  -e ConnectionStrings__DefaultConnection="Server=..." \
+  --name identityserver \
+  identityserverapi:1.0.0
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+PROBLEMA: Error "docker: command not found"
+SOLUCIÓN: Asegúrate de que Docker Desktop esté instalado y en ejecución
+
+PROBLEMA: Error de permisos al hacer docker push
+SOLUCIÓN: Ejecuta "docker login" antes de hacer push
+
+PROBLEMA: La imagen es muy grande
+SOLUCIÓN: Usa imágenes base alpine, multi-stage builds (ya lo tienes),
+          y .dockerignore para excluir archivos innecesarios
+
+PROBLEMA: El contenedor no inicia
+SOLUCIÓN: Revisa los logs con "docker logs nombre_contenedor"
+
+PROBLEMA: No se puede conectar al contenedor
+SOLUCIÓN: Verifica que los puertos estén mapeados correctamente con "docker ps"
+
+PROBLEMA: Cambios en el código no se reflejan
+SOLUCIÓN: Reconstruye la imagen con --no-cache
+
+PROBLEMA: Error "manifest unknown" al hacer pull
+SOLUCIÓN: Verifica que la imagen exista en el registry con el tag correcto
+
+================================================================================
+FIN DE LA DOCUMENTACIÓN
+================================================================================

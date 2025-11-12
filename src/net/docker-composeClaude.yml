@@ -21,9 +21,6 @@ services:
       - Cors__AllowedOrigins__1=http://localhost:7001  # SampleApp1
       - Cors__AllowedOrigins__2=http://localhost:7002  # SampleApp2
       - Cors__AllowedOrigins__3=http://localhost:7003  # SampleApp3
-    depends_on:
-      sqlserver:
-        condition: service_healthy
     networks:
       - identity-network
     restart: unless-stopped
@@ -56,31 +53,6 @@ services:
     depends_on:
       identityserver-api:
         condition: service_healthy
-
-  sqlserver:
-    image: mcr.microsoft.com/mssql/server:2022-latest
-    container_name: identityserver-sqlserver
-    environment:
-      - ACCEPT_EULA=Y
-      - SA_PASSWORD=YourStrong@Password123
-      - MSSQL_PID=Developer
-    ports:
-      - "1433:1433"
-    volumes:
-      - sqlserver-data:/var/opt/mssql
-    networks:
-      - identity-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P YourStrong@Password123 -C -Q 'SELECT 1' || exit 1"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
-      start_period: 10s
-
-volumes:
-  sqlserver-data:
-    driver: local
 
 networks:
   identity-network:

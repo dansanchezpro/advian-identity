@@ -3,6 +3,7 @@ using IdentityServer.Core.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -90,6 +91,15 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("JWT"));
 builder.Configuration["JWT:SecretKey"] = "MyVerySecretKeyForJWTTokenGeneration123456789";
 
+// Configure forwarded headers for running behind reverse proxy (Azure App Service, Nginx, etc.)
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    // Trust all proxies (Azure App Service, load balancers, etc.)
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
 // Configure Rate Limiting for authentication endpoints
 builder.Services.AddRateLimiter(options =>
 {
@@ -157,6 +167,10 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
+// Enable forwarded headers middleware (must be before other middleware)
+// This allows the app to understand the original request scheme (http/https) when behind a proxy
+app.UseForwardedHeaders();
+
 // Enable static files serving
 app.UseStaticFiles();
 
@@ -201,7 +215,14 @@ app.UseCors();
 // Enable rate limiting middleware
 app.UseRateLimiter();
 
-app.UseHttpsRedirection();
+// Only redirect to HTTPS when NOT running in a container
+// In containerized environments, HTTPS is handled by the reverse proxy/load balancer
+var isRunningInContainer = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true";
+if (!isRunningInContainer)
+{
+    app.UseHttpsRedirection();
+}
+
 app.UseAuthentication();
 app.UseAuthorization();
 

@@ -19,13 +19,15 @@ public class OAuthController : ControllerBase
     private readonly ITokenService _tokenService;
     private readonly IdentityDbContext _context;
     private readonly IConfiguration _configuration;
+    private readonly ILogger<OAuthController> _logger;
 
-    public OAuthController(IUserService userService, ITokenService tokenService,  IdentityDbContext context, IConfiguration configuration)
+    public OAuthController(IUserService userService, ITokenService tokenService,  IdentityDbContext context, IConfiguration configuration, ILogger<OAuthController> logger)
     {
         _userService = userService;
         _tokenService = tokenService;
         _context = context;
         _configuration = configuration;
+        _logger = logger;
     }
 
     [HttpGet("authorize")]
@@ -48,9 +50,20 @@ public class OAuthController : ControllerBase
         }
 
         var client = await _context.Clients.FirstOrDefaultAsync(c => c.ClientId == client_id);
-        if (client == null || !client.RedirectUris.Contains(redirect_uri))
+        if (client == null)
         {
-            return BadRequest(new { error = "invalid_client" });
+            _logger.LogError("Client not found: {ClientId}", client_id);
+            return BadRequest(new { error = "invalid_client", error_description = "Client not found" });
+        }
+
+        // Validate redirect_uri against registered URIs
+        var isValidRedirect = await ValidateRedirectUri(client_id, redirect_uri);
+        if (!isValidRedirect)
+        {
+            return BadRequest(new {
+                error = "invalid_request",
+                error_description = "The redirect_uri is not registered for this client"
+            });
         }
 
         var scopes = scope.Split(' ').ToList();
@@ -65,8 +78,8 @@ public class OAuthController : ControllerBase
             var userIdClaim = HttpContext.User.FindFirst("UserId")?.Value;
             if (!string.IsNullOrEmpty(userIdClaim) && int.TryParse(userIdClaim, out var userId))
             {
-                Console.WriteLine($"[DEBUG] Found valid authenticated user {userId}. Generating code directly.");
-                
+                _logger.LogInformation("Found valid authenticated user {UserId}. Generating code directly.", userId);
+
                 // User is already authenticated, generate authorization code directly
                 var code = await _tokenService.GenerateAuthorizationCodeAsync(
                     client_id, userId, scopes, redirect_uri,
@@ -76,7 +89,7 @@ public class OAuthController : ControllerBase
                 if (!string.IsNullOrEmpty(state))
                     redirectUrl += $"&state={Uri.EscapeDataString(state)}";
 
-                Console.WriteLine($"[DEBUG] SSO redirect to: {redirectUrl}");
+                _logger.LogInformation("SSO redirect to: {RedirectUrl}", redirectUrl);
                 return Redirect(redirectUrl);
             }
         }
@@ -93,8 +106,8 @@ public class OAuthController : ControllerBase
                 
                 if (!string.IsNullOrEmpty(subClaim) && int.TryParse(subClaim, out var hintUserId))
                 {
-                    Console.WriteLine($"[DEBUG] Valid id_token_hint found for user {hintUserId}. Generating code directly.");
-                    
+                    _logger.LogInformation("Valid id_token_hint found for user {HintUserId}. Generating code directly.", hintUserId);
+
                     var code = await _tokenService.GenerateAuthorizationCodeAsync(
                         client_id, hintUserId, scopes, redirect_uri,
                         code_challenge, code_challenge_method);
@@ -103,22 +116,22 @@ public class OAuthController : ControllerBase
                     if (!string.IsNullOrEmpty(state))
                         redirectUrl += $"&state={Uri.EscapeDataString(state)}";
 
-                    Console.WriteLine($"[DEBUG] SSO redirect via id_token_hint to: {redirectUrl}");
+                    _logger.LogInformation("SSO redirect via id_token_hint to: {RedirectUrl}", redirectUrl);
                     return Redirect(redirectUrl);
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[DEBUG] Failed to parse id_token_hint: {ex.Message}");
+                _logger.LogInformation("Failed to parse id_token_hint: {Message}", ex.Message);
             }
         }
-        
-        Console.WriteLine($"[DEBUG] No authenticated session found");
+
+        _logger.LogInformation("No authenticated session found");
 
         // Handle prompt=none for silent authentication
         if (prompt == "none")
         {
-            Console.WriteLine($"[DEBUG] Silent authentication requested but no valid session found");
+            _logger.LogInformation("Silent authentication requested but no valid session found");
             var errorRedirect = $"{redirect_uri}?error=login_required";
             if (!string.IsNullOrEmpty(state))
                 errorRedirect += $"&state={Uri.EscapeDataString(state)}";
@@ -140,7 +153,7 @@ public class OAuthController : ControllerBase
         if (!string.IsNullOrEmpty(prompt))
             loginUrl += $"&prompt={Uri.EscapeDataString(prompt)}";
 
-        Console.WriteLine($"[DEBUG] No valid session, redirecting to login: {loginUrl}");
+        _logger.LogInformation("No valid session, redirecting to login: {LoginUrl}", loginUrl);
         return Redirect(loginUrl);
     }
 
@@ -153,7 +166,7 @@ public class OAuthController : ControllerBase
     [HttpPost("token")]
     public async Task<IActionResult> Token()
     {
-        Console.WriteLine("[DEBUG] Token endpoint called");
+        _logger.LogInformation("Token endpoint called");
         var form = await Request.ReadFormAsync();
         var grantType = form["grant_type"].ToString();
         var clientId = form["client_id"].ToString();
@@ -194,34 +207,34 @@ public class OAuthController : ControllerBase
         var redirectUri = form["redirect_uri"].ToString();
         var codeVerifier = form["code_verifier"].ToString();
 
-        Console.WriteLine($"[DEBUG] Token exchange - Code: {code}, ClientId: {client.ClientId}, RedirectUri: {redirectUri}, CodeVerifier: {codeVerifier}");
-        
+        _logger.LogInformation("Token exchange - Code: {Code}, ClientId: {ClientId}, RedirectUri: {RedirectUri}, CodeVerifier: {CodeVerifier}", code, client.ClientId, redirectUri, codeVerifier);
+
         var (isValid, authCode) = await _tokenService.ValidateAuthorizationCodeAsync(code, client.ClientId, codeVerifier);
-        
-        Console.WriteLine($"[DEBUG] Code validation - IsValid: {isValid}, AuthCode: {(authCode != null ? "found" : "null")}");
+
+        _logger.LogInformation("Code validation - IsValid: {IsValid}, AuthCode: {AuthCode}", isValid, (authCode != null ? "found" : "null"));
         if (authCode != null)
         {
-            Console.WriteLine($"[DEBUG] AuthCode - RedirectUri: {authCode.RedirectUri}, Expected: {redirectUri}, Match: {authCode.RedirectUri == redirectUri}");
+            _logger.LogInformation("AuthCode - RedirectUri: {AuthCodeRedirectUri}, Expected: {RedirectUri}, Match: {Match}", authCode.RedirectUri, redirectUri, authCode.RedirectUri == redirectUri);
         }
         
         if (!isValid || authCode == null || authCode.RedirectUri != redirectUri)
         {
-            Console.WriteLine($"[DEBUG] Token exchange failed - IsValid: {isValid}, AuthCode null: {authCode == null}, RedirectUri match: {authCode?.RedirectUri == redirectUri}");
+            _logger.LogInformation("Token exchange failed - IsValid: {IsValid}, AuthCode null: {AuthCodeNull}, RedirectUri match: {RedirectUriMatch}", isValid, authCode == null, authCode?.RedirectUri == redirectUri);
             return BadRequest(new { error = "invalid_grant" });
         }
 
         var user = await _userService.FindByIdAsync(authCode.UserId);
-        Console.WriteLine($"[DEBUG] User lookup - UserId: {authCode.UserId}, User found: {user != null}");
+        _logger.LogInformation("User lookup - UserId: {UserId}, User found: {UserFound}", authCode.UserId, user != null);
         if (user == null)
         {
-            Console.WriteLine($"[DEBUG] FAILED: User not found for UserId: {authCode.UserId}");
+            _logger.LogInformation("FAILED: User not found for UserId: {UserId}", authCode.UserId);
             return BadRequest(new { error = "invalid_grant" });
         }
 
         var issuer = $"{Request.Scheme}://{Request.Host}";
         var jwtId = Guid.NewGuid().ToString();
 
-        Console.WriteLine($"[DEBUG] Generating tokens - Issuer: {issuer}, ClientId: {client.ClientId}, Lifetime: {client.AccessTokenLifetime / 60} min");
+        _logger.LogInformation("Generating tokens - Issuer: {Issuer}, ClientId: {ClientId}, Lifetime: {Lifetime} min", issuer, client.ClientId, client.AccessTokenLifetime / 60);
 
         string accessToken;
         string idToken;
@@ -232,18 +245,18 @@ public class OAuthController : ControllerBase
                 user.Id, user.Email, user.FirstName, user.LastName,
                 authCode.Scopes, issuer, client.ClientId, client.AccessTokenLifetime / 60);
 
-            Console.WriteLine($"[DEBUG] Access token generated - Length: {accessToken.Length}");
+            _logger.LogInformation("Access token generated - Length: {Length}", accessToken.Length);
 
             idToken = _tokenService.GenerateJwtToken(
                 user.Id, user.Email, user.FirstName, user.LastName,
                 new List<string> { "openid" }, issuer, client.ClientId, client.AccessTokenLifetime / 60);
 
-            Console.WriteLine($"[DEBUG] Token generated successfully - AccessToken length: {accessToken.Length}, IDToken length: {idToken.Length}");
+            _logger.LogInformation("Token generated successfully - AccessToken length: {AccessTokenLength}, IDToken length: {IdTokenLength}", accessToken.Length, idToken.Length);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[ERROR] Failed to generate JWT tokens: {ex.Message}");
-            Console.WriteLine($"[ERROR] Stack trace: {ex.StackTrace}");
+            _logger.LogError("Failed to generate JWT tokens: {Message}", ex.Message);
+            _logger.LogError("Stack trace: {StackTrace}", ex.StackTrace);
             return BadRequest(new { error = "token_generation_failed", error_description = ex.Message });
         }
 
@@ -252,7 +265,7 @@ public class OAuthController : ControllerBase
         if (authCode.Scopes.Contains("offline_access"))
         {
             refreshToken = await _tokenService.GenerateRefreshTokenAsync(client.ClientId, user.Id, authCode.Scopes, jwtId);
-            Console.WriteLine($"[DEBUG] Refresh token generated - Length: {refreshToken.Length}");
+            _logger.LogInformation("Refresh token generated - Length: {Length}", refreshToken.Length);
         }
 
         var tokenResponse = new Dictionary<string, object>
@@ -268,8 +281,8 @@ public class OAuthController : ControllerBase
         {
             tokenResponse["refresh_token"] = refreshToken;
         }
-        
-        Console.WriteLine($"[DEBUG] Returning token response: {System.Text.Json.JsonSerializer.Serialize(tokenResponse)}");
+
+        _logger.LogInformation("Returning token response: {TokenResponse}", System.Text.Json.JsonSerializer.Serialize(tokenResponse));
         return Ok(tokenResponse);
     }
 
@@ -278,19 +291,19 @@ public class OAuthController : ControllerBase
         var refreshToken = form["refresh_token"].ToString();
         var requestedScope = form["scope"].ToString(); // Optional: can request subset of original scopes
 
-        Console.WriteLine($"[DEBUG] Refresh token grant - RefreshToken: {refreshToken[..10]}..., ClientId: {client.ClientId}");
+        _logger.LogInformation("Refresh token grant - RefreshToken: {RefreshToken}..., ClientId: {ClientId}", refreshToken[..10], client.ClientId);
 
         var (isValid, refreshTokenEntity) = await _tokenService.ValidateRefreshTokenAsync(refreshToken, client.ClientId);
         if (!isValid || refreshTokenEntity == null)
         {
-            Console.WriteLine($"[DEBUG] Refresh token validation failed");
+            _logger.LogInformation("Refresh token validation failed");
             return BadRequest(new { error = "invalid_grant" });
         }
 
         var user = await _userService.FindByIdAsync(refreshTokenEntity.UserId);
         if (user == null)
         {
-            Console.WriteLine($"[DEBUG] User not found for refresh token");
+            _logger.LogInformation("User not found for refresh token");
             return BadRequest(new { error = "invalid_grant" });
         }
 
@@ -324,7 +337,7 @@ public class OAuthController : ControllerBase
         // Generate new refresh token
         var newRefreshToken = await _tokenService.GenerateRefreshTokenAsync(client.ClientId, user.Id, scopes, jwtId);
 
-        Console.WriteLine($"[DEBUG] New tokens generated via refresh - AccessToken length: {accessToken.Length}, RefreshToken length: {newRefreshToken.Length}");
+        _logger.LogInformation("New tokens generated via refresh - AccessToken length: {AccessTokenLength}, RefreshToken length: {RefreshTokenLength}", accessToken.Length, newRefreshToken.Length);
 
         var tokenResponse = new
         {
@@ -335,15 +348,15 @@ public class OAuthController : ControllerBase
             expires_in = client.AccessTokenLifetime,
             scope = string.Join(" ", scopes)
         };
-        
-        Console.WriteLine($"[DEBUG] Returning refresh token response");
+
+        _logger.LogInformation("Returning refresh token response");
         return Ok(tokenResponse);
     }
 
     [HttpPost("generate-code")]
     public async Task<IActionResult> GenerateCode([FromBody] GenerateCodeRequest request)
     {
-        Console.WriteLine($"[DEBUG] Generate code request - ClientId: {request.ClientId}, UserId: {request.UserId}, RedirectUri: {request.RedirectUri}, Scope: {request.Scope}");
+        _logger.LogInformation("Generate code request - ClientId: {ClientId}, UserId: {UserId}, RedirectUri: {RedirectUri}, Scope: {Scope}", request.ClientId, request.UserId, request.RedirectUri, request.Scope);
         var client = await _context.Clients.FirstOrDefaultAsync(c => c.ClientId == request.ClientId);
         if (client == null)
         {
@@ -406,13 +419,13 @@ public class OAuthController : ControllerBase
             var name = claims.FirstOrDefault(c => c.Type == "name")?.Value;
             
             // Debug: log all claims
-            Console.WriteLine($"[DEBUG] All claims in token:");
+            _logger.LogInformation("All claims in token:");
             foreach (var claim in claims)
             {
-                Console.WriteLine($"  {claim.Type} = {claim.Value}");
+                _logger.LogInformation("  {ClaimType} = {ClaimValue}", claim.Type, claim.Value);
             }
 
-            Console.WriteLine($"[DEBUG] UserInfo request successful for user: {sub}, email: {email}");
+            _logger.LogInformation("UserInfo request successful for user: {Sub}, email: {Email}", sub, email);
 
             
             var response = new
@@ -428,9 +441,44 @@ public class OAuthController : ControllerBase
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DEBUG] UserInfo token validation failed: {ex.Message}");
+            _logger.LogInformation("UserInfo token validation failed: {Message}", ex.Message);
             return Unauthorized();
         }
+    }
+
+    /// <summary>
+    /// Validates that a redirect URI is registered for the specified client.
+    /// This prevents SSRF (Server-Side Request Forgery) and open redirect attacks.
+    /// </summary>
+    /// <param name="clientId">The OAuth client ID</param>
+    /// <param name="redirectUri">The redirect URI to validate</param>
+    /// <returns>True if the redirect URI is registered for this client, false otherwise</returns>
+    private async Task<bool> ValidateRedirectUri(string clientId, string redirectUri)
+    {
+        // Find the client in the database
+        var client = await _context.Clients
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.ClientId == clientId);
+
+        if (client == null)
+        {
+            _logger.LogError("Client not found: {ClientId}", clientId);
+            return false;
+        }
+
+        // Check if the redirect URI is in the client's registered URIs
+        // Perform exact match (case-insensitive) for security
+        var isValid = client.RedirectUris.Any(uri =>
+            uri.Equals(redirectUri, StringComparison.OrdinalIgnoreCase));
+
+        if (!isValid)
+        {
+            _logger.LogError("Redirect URI not registered for client {ClientId}", clientId);
+            _logger.LogError("Attempted: {RedirectUri}", redirectUri);
+            _logger.LogError("Registered URIs: {RegisteredUris}", string.Join(", ", client.RedirectUris));
+        }
+
+        return isValid;
     }
 }
 

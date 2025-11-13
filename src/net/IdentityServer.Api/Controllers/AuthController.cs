@@ -20,13 +20,15 @@ public class AuthController : ControllerBase
     private readonly ITokenService _tokenService;
     private readonly IdentityDbContext _context;
     private readonly IConfiguration _configuration;
+    private readonly ILogger<AuthController> _logger;
 
-    public AuthController(IUserService userService, ITokenService tokenService, IdentityDbContext context, IConfiguration configuration)
+    public AuthController(IUserService userService, ITokenService tokenService, IdentityDbContext context, IConfiguration configuration, ILogger<AuthController> logger)
     {
         _userService = userService;
         _tokenService = tokenService;
         _context = context;
         _configuration = configuration;
+        _logger = logger;
     }
 
     // New OIDC login endpoint - acts as a bridge between SampleApps and Identity Server UI
@@ -68,7 +70,7 @@ public class AuthController : ControllerBase
                 var user = await _userService.FindByIdAsync(userId);
                 if (user == null || !user.IsActive)
                 {
-                    Console.WriteLine($"[DEBUG] Stale cookie detected - UserId {userId} not found. Signing out.");
+                    _logger.LogInformation("Stale cookie detected - UserId {UserId} not found. Signing out.", userId);
 
                     // Clear the invalid cookie
                     await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
@@ -79,7 +81,7 @@ public class AuthController : ControllerBase
                 else
                 {
                     // User authenticated via .NET - generating code directly
-                    Console.WriteLine($"[DEBUG] Valid session found for UserId: {userId}");
+                    _logger.LogInformation("Valid session found for UserId: {UserId}", userId);
 
                     // User is already authenticated, generate authorization code directly
                     var code = await _tokenService.GenerateAuthorizationCodeAsync(
@@ -219,9 +221,9 @@ public class AuthController : ControllerBase
                 : Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(returnUrl));
 
             // Log para debugging
-            Console.WriteLine($"[DEBUG] Google OAuth - Redirect URI: {redirectUrl}");
-            Console.WriteLine($"[DEBUG] Google OAuth - Client ID: {clientId}");
-            Console.WriteLine($"[DEBUG] Google OAuth - State (encoded returnUrl): {state}");
+            _logger.LogInformation("Google OAuth - Redirect URI: {RedirectUrl}", redirectUrl);
+            _logger.LogInformation("Google OAuth - Client ID: {ClientId}", clientId);
+            _logger.LogInformation("Google OAuth - State (encoded returnUrl): {State}", state);
 
             var authUrl = $"https://accounts.google.com/o/oauth2/v2/auth?" +
                 $"client_id={clientId}&" +
@@ -231,7 +233,7 @@ public class AuthController : ControllerBase
                 $"state={Uri.EscapeDataString(state)}&" +
                 $"access_type=offline";
 
-            Console.WriteLine($"[DEBUG] Google OAuth - Full Auth URL: {authUrl}");
+            _logger.LogInformation("Google OAuth - Full Auth URL: {AuthUrl}", authUrl);
 
             return Redirect(authUrl);
         }
@@ -239,8 +241,8 @@ public class AuthController : ControllerBase
         {
             var clientId = _configuration["Authentication:Microsoft:ClientId"];
 
-            Console.WriteLine($"[DEBUG] Microsoft OAuth - Redirect URI: {redirectUrl}");
-            Console.WriteLine($"[DEBUG] Microsoft OAuth - Client ID: {clientId}");
+            _logger.LogInformation("Microsoft OAuth - Redirect URI: {RedirectUrl}", redirectUrl);
+            _logger.LogInformation("Microsoft OAuth - Client ID: {ClientId}", clientId);
 
             var authUrl = $"https://login.microsoftonline.com/common/oauth2/v2.0/authorize?" +
                 $"client_id={clientId}&" +
@@ -249,7 +251,7 @@ public class AuthController : ControllerBase
                 $"scope=openid%20profile%20email&" +
                 $"response_mode=query";
 
-            Console.WriteLine($"[DEBUG] Microsoft OAuth - Full Auth URL: {authUrl}");
+            _logger.LogInformation("Microsoft OAuth - Full Auth URL: {AuthUrl}", authUrl);
 
             return Redirect(authUrl);
         }
@@ -269,12 +271,12 @@ public class AuthController : ControllerBase
                 {
                     var decodedBytes = Convert.FromBase64String(state);
                     returnUrl = System.Text.Encoding.UTF8.GetString(decodedBytes);
-                    Console.WriteLine($"[DEBUG] Decoded returnUrl from state: {returnUrl}");
+                    _logger.LogInformation("Decoded returnUrl from state: {ReturnUrl}", returnUrl);
                 }
                 catch
                 {
                     // State is not a valid Base64 string, it might be just a GUID
-                    Console.WriteLine($"[DEBUG] State is not a valid returnUrl, using as-is: {state}");
+                    _logger.LogInformation("State is not a valid returnUrl, using as-is: {State}", state);
                 }
             }
 
@@ -301,19 +303,19 @@ public class AuthController : ControllerBase
             var firstName = googleUserInfo.GivenName ?? googleUserInfo.Name ?? email.Split('@')[0];
             var lastName = googleUserInfo.FamilyName ?? "User";
 
-            Console.WriteLine($"[DEBUG] Google user info - Email: {email}, ID: {externalUserId}, FirstName: {firstName}, LastName: {lastName}");
+            _logger.LogInformation("Google user info - Email: {Email}, ID: {ExternalUserId}, FirstName: {FirstName}, LastName: {LastName}", email, externalUserId, firstName, lastName);
 
             // For LOGIN flow: User must already exist, don't auto-create
             var user = await _userService.FindByExternalLoginAsync(provider, externalUserId);
             if (user == null)
             {
-                Console.WriteLine($"[DEBUG] User not found by GoogleId, searching by email: {email}");
+                _logger.LogInformation("User not found by GoogleId, searching by email: {Email}", email);
                 user = await _userService.FindByEmailAsync(email);
 
                 if (user == null)
                 {
                     // User doesn't exist - redirect back to login with error
-                    Console.WriteLine($"[DEBUG] User not found - redirecting to login with error");
+                    _logger.LogInformation("User not found - redirecting to login with error");
                     var loginUrl = _configuration["IdentityServer:LoginUrl"] ?? "https://localhost:7000";
                     var loginWithError = $"{loginUrl}/login?error=no_account";
 
@@ -369,7 +371,7 @@ public class AuthController : ControllerBase
                 else
                 {
                     // User exists by email but not linked to Google yet - link it
-                    Console.WriteLine($"[DEBUG] User found by email with ID: {user.Id}, linking Google account");
+                    _logger.LogInformation("User found by email with ID: {UserId}, linking Google account", user.Id);
                     await _userService.AddExternalLoginAsync(user.Id, provider, externalUserId, provider);
 
                     // Update GoogleId if not set
@@ -377,13 +379,13 @@ public class AuthController : ControllerBase
                     {
                         user.GoogleId = externalUserId;
                         await _context.SaveChangesAsync();
-                        Console.WriteLine($"[DEBUG] GoogleId updated for user ID: {user.Id}");
+                        _logger.LogInformation("GoogleId updated for user ID: {UserId}", user.Id);
                     }
                 }
             }
             else
             {
-                Console.WriteLine($"[DEBUG] User found by GoogleId with ID: {user.Id}");
+                _logger.LogInformation("User found by GoogleId with ID: {UserId}", user.Id);
             }
 
             // Create .NET Authentication session
@@ -402,12 +404,12 @@ public class AuthController : ControllerBase
                 new ClaimsPrincipal(claimsIdentity),
                 new AuthenticationProperties { IsPersistent = true });
 
-            Console.WriteLine($"[DEBUG] User signed in with cookie authentication");
-            Console.WriteLine($"[DEBUG] ReturnUrl: {returnUrl ?? "(empty)"}");
+            _logger.LogInformation("User signed in with cookie authentication");
+            _logger.LogInformation("ReturnUrl: {ReturnUrl}", returnUrl ?? "(empty)");
 
             if (string.IsNullOrEmpty(returnUrl))
             {
-                Console.WriteLine($"[DEBUG] No returnUrl, redirecting to Identity Server UI");
+                _logger.LogInformation("No returnUrl, redirecting to Identity Server UI");
                 // Redirect to Identity Server dashboard or login success page
                 return Redirect($"{_configuration["IdentityServer:LoginUrl"]}/dashboard");
             }
@@ -427,7 +429,7 @@ public class AuthController : ControllerBase
                 var oidcCodeChallenge = queryParams.ContainsKey("code_challenge") ? queryParams["code_challenge"].ToString() : null;
                 var oidcCodeChallengeMethod = queryParams.ContainsKey("code_challenge_method") ? queryParams["code_challenge_method"].ToString() : null;
 
-                Console.WriteLine($"[DEBUG] OIDC flow detected - Client: {oidcClientId}, RedirectUri: {oidcRedirectUri}");
+                _logger.LogInformation("OIDC flow detected - Client: {ClientId}, RedirectUri: {RedirectUri}", oidcClientId, oidcRedirectUri);
 
                 // Generate authorization code
                 var authCode = await _tokenService.GenerateAuthorizationCodeAsync(
@@ -439,11 +441,11 @@ public class AuthController : ControllerBase
                 if (!string.IsNullOrEmpty(oidcState))
                     finalRedirectUrl += $"&state={Uri.EscapeDataString(oidcState)}";
 
-                Console.WriteLine($"[DEBUG] Redirecting to client app: {finalRedirectUrl}");
+                _logger.LogInformation("Redirecting to client app: {FinalRedirectUrl}", finalRedirectUrl);
                 return Redirect(finalRedirectUrl);
             }
 
-            Console.WriteLine($"[DEBUG] Simple redirect to: {returnUrl}");
+            _logger.LogInformation("Simple redirect to: {ReturnUrl}", returnUrl);
             return Redirect(returnUrl);
         }
         catch (Exception ex)
@@ -558,7 +560,7 @@ public class AuthController : ControllerBase
     {
         try
         {
-            Console.WriteLine($"[DEBUG] RegisterComplete called - Email: {request.Email}");
+            _logger.LogInformation("RegisterComplete called - Email: {Email}", request.Email);
 
             // Validate age (must be at least 13 years old)
             if (request.DateOfBirth.HasValue)
@@ -579,7 +581,7 @@ public class AuthController : ControllerBase
                 request.Password,
                 request.DateOfBirth);
 
-            Console.WriteLine($"[DEBUG] User created with ID: {user.Id}");
+            _logger.LogInformation("User created with ID: {UserId}", user.Id);
 
             // Automatically sign in the user after registration
             var claims = new List<Claim>
@@ -597,7 +599,7 @@ public class AuthController : ControllerBase
                 new ClaimsPrincipal(claimsIdentity),
                 new AuthenticationProperties { IsPersistent = true });
 
-            Console.WriteLine($"[DEBUG] User auto-logged in after manual registration");
+            _logger.LogInformation("User auto-logged in after manual registration");
 
             // If there's a returnUrl with OIDC parameters, generate authorization code
             if (!string.IsNullOrEmpty(request.ReturnUrl))
@@ -614,7 +616,7 @@ public class AuthController : ControllerBase
                     var codeChallenge = queryParams.ContainsKey("code_challenge") ? queryParams["code_challenge"].ToString() : null;
                     var codeChallengeMethod = queryParams.ContainsKey("code_challenge_method") ? queryParams["code_challenge_method"].ToString() : null;
 
-                    Console.WriteLine($"[DEBUG] OIDC flow detected - Client: {clientId}, RedirectUri: {redirectUri}");
+                    _logger.LogInformation("OIDC flow detected - Client: {ClientId}, RedirectUri: {RedirectUri}", clientId, redirectUri);
 
                     var authCode = await _tokenService.GenerateAuthorizationCodeAsync(
                         clientId, user.Id, scope.Split(' ').ToList(), redirectUri,
@@ -624,24 +626,24 @@ public class AuthController : ControllerBase
                     if (!string.IsNullOrEmpty(state))
                         finalRedirectUrl += $"&state={Uri.EscapeDataString(state)}";
 
-                    Console.WriteLine($"[DEBUG] Redirecting to app after manual registration: {finalRedirectUrl}");
+                    _logger.LogInformation("Redirecting to app after manual registration: {FinalRedirectUrl}", finalRedirectUrl);
                     return Redirect(finalRedirectUrl);
                 }
             }
 
             // No OIDC flow - redirect to dashboard
             var identityServerUrl = _configuration["IdentityServer:LoginUrl"] ?? "https://localhost:7000";
-            Console.WriteLine($"[DEBUG] Redirecting to dashboard after manual registration");
+            _logger.LogInformation("Redirecting to dashboard after manual registration");
             return Redirect($"{identityServerUrl}/dashboard");
         }
         catch (InvalidOperationException ex)
         {
-            Console.WriteLine($"[ERROR] RegisterComplete failed: {ex.Message}");
+            _logger.LogError("RegisterComplete failed: {Message}", ex.Message);
             return BadRequest(new { error = "registration_failed", error_description = ex.Message });
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[ERROR] RegisterComplete unexpected error: {ex.Message}");
+            _logger.LogError("RegisterComplete unexpected error: {Message}", ex.Message);
             return StatusCode(500, new { error = "server_error", error_description = "An unexpected error occurred during registration" });
         }
     }
@@ -655,8 +657,8 @@ public class AuthController : ControllerBase
     [HttpGet("logout")]
     public async Task<IActionResult> OidcLogout([FromQuery] string? post_logout_redirect_uri = null, [FromQuery] string? id_token_hint = null, [FromQuery] string? state = null)
     {
-        Console.WriteLine($"[DEBUG] OIDC Logout - post_logout_redirect_uri: {post_logout_redirect_uri}, state: {state}");
-        
+        _logger.LogInformation("OIDC Logout - post_logout_redirect_uri: {PostLogoutRedirectUri}, state: {State}", post_logout_redirect_uri, state);
+
         // Validate post_logout_redirect_uri if provided
         if (!string.IsNullOrEmpty(post_logout_redirect_uri))
         {
@@ -664,43 +666,43 @@ public class AuthController : ControllerBase
             var allowedHosts = new[] { "localhost:7001", "localhost:7002", "localhost:7003", "localhost:7000" };
             var uri = new Uri(post_logout_redirect_uri);
             var isValidRedirect = allowedHosts.Any(host => uri.Authority == host);
-            
+
             if (!isValidRedirect)
             {
                 return BadRequest(new { error = "invalid_request", error_description = "Invalid post_logout_redirect_uri" });
             }
         }
-        
+
         await HandleLogout();
-        
+
         // Redirect to post_logout_redirect_uri if provided
         if (!string.IsNullOrEmpty(post_logout_redirect_uri))
         {
             var redirectUrl = post_logout_redirect_uri;
             if (!string.IsNullOrEmpty(state))
                 redirectUrl += $"?state={Uri.EscapeDataString(state)}";
-                
-            Console.WriteLine($"[DEBUG] OIDC Logout - Redirecting to: {redirectUrl}");
+
+            _logger.LogInformation("OIDC Logout - Redirecting to: {RedirectUrl}", redirectUrl);
             return Redirect(redirectUrl);
         }
-        
+
         return Ok(new { success = true, message = "Logged out successfully" });
     }
 
     private async Task<IActionResult> HandleLogout()
     {
-        Console.WriteLine($"[DEBUG] HandleLogout called - User authenticated: {User.Identity?.IsAuthenticated}");
-        
+        _logger.LogInformation("HandleLogout called - User authenticated: {IsAuthenticated}", User.Identity?.IsAuthenticated);
+
         // Use .NET Authentication to sign out
         if (User.Identity?.IsAuthenticated == true)
         {
             // Sign out using .NET Authentication
             await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-            Console.WriteLine($"[DEBUG] User signed out successfully");
+            _logger.LogInformation("User signed out successfully");
         }
         else
         {
-            Console.WriteLine($"[DEBUG] No authenticated user to sign out");
+            _logger.LogInformation("No authenticated user to sign out");
         }
 
         return Ok(new { success = true, message = "Logged out successfully" });
@@ -712,7 +714,7 @@ public class AuthController : ControllerBase
     {
         try
         {
-            Console.WriteLine($"[DEBUG] GetGoogleUserInfo called with code: {request.AuthorizationCode?.Substring(0, 10)}...");
+            _logger.LogInformation("GetGoogleUserInfo called with code: {AuthorizationCode}...", request.AuthorizationCode?.Substring(0, 10));
 
             if (string.IsNullOrEmpty(request.AuthorizationCode))
             {
@@ -743,11 +745,11 @@ public class AuthController : ControllerBase
                 try
                 {
                     validatedUserInfo = await ValidateGoogleIdToken(tokenResponse.IdToken);
-                    Console.WriteLine($"[DEBUG] ID token validated successfully during registration flow");
+                    _logger.LogInformation("ID token validated successfully during registration flow");
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[ERROR] ID token validation failed: {ex.Message}");
+                    _logger.LogError("ID token validation failed: {Message}", ex.Message);
                 }
             }
 
@@ -779,7 +781,7 @@ public class AuthController : ControllerBase
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[ERROR] GetGoogleUserInfo failed: {ex.Message}");
+            _logger.LogError("GetGoogleUserInfo failed: {Message}", ex.Message);
             return StatusCode(500, new { error = "internal_error", error_description = "An error occurred while getting user information" });
         }
     }
@@ -791,7 +793,7 @@ public class AuthController : ControllerBase
     {
         try
         {
-            Console.WriteLine($"[DEBUG] RegisterWithGoogle called");
+            _logger.LogInformation("RegisterWithGoogle called");
 
             // Validate required fields
             if (string.IsNullOrEmpty(request.GoogleId) ||
@@ -802,7 +804,7 @@ public class AuthController : ControllerBase
                 return Ok(new { success = false, error = "All fields are required" });
             }
 
-            Console.WriteLine($"[DEBUG] Registering user with GoogleId: {request.GoogleId}, Email: {request.Email}");
+            _logger.LogInformation("Registering user with GoogleId: {GoogleId}, Email: {Email}", request.GoogleId, request.Email);
 
             // Use data from request (already validated in GetGoogleUserInfo endpoint)
             var googleId = request.GoogleId;
@@ -810,7 +812,7 @@ public class AuthController : ControllerBase
             var firstName = request.FirstName ?? email.Split('@')[0];
             var lastName = request.LastName ?? "User";
 
-            Console.WriteLine($"[DEBUG] Creating account for Google user: {email} (GoogleId: {googleId})");
+            _logger.LogInformation("Creating account for Google user: {Email} (GoogleId: {GoogleId})", email, googleId);
 
             // Check if user already exists
             var existingUser = await _context.Users
@@ -847,7 +849,7 @@ public class AuthController : ControllerBase
             _context.Users.Add(user);
             await _context.SaveChangesAsync();
 
-            Console.WriteLine($"[DEBUG] User created with ID: {user.Id}");
+            _logger.LogInformation("User created with ID: {UserId}", user.Id);
 
             // Auto-login: Create authentication session
             var claims = new List<Claim>
@@ -867,7 +869,7 @@ public class AuthController : ControllerBase
                 new ClaimsPrincipal(claimsIdentity),
                 new AuthenticationProperties { IsPersistent = true });
 
-            Console.WriteLine($"[DEBUG] User auto-logged in after Google registration");
+            _logger.LogInformation("User auto-logged in after Google registration");
 
             // Return JSON response (the UI will handle the redirect)
             return Ok(new
@@ -884,7 +886,7 @@ public class AuthController : ControllerBase
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[ERROR] RegisterWithGoogle failed: {ex.Message}");
+            _logger.LogError("RegisterWithGoogle failed: {Message}", ex.Message);
             return Ok(new { success = false, error = "An error occurred during registration" });
         }
     }
@@ -920,7 +922,7 @@ public class AuthController : ControllerBase
 
                     if (!response.IsSuccessStatusCode)
                     {
-                        Console.WriteLine("[ERROR] Failed to fetch Google's public keys");
+                        _logger.LogError("Failed to fetch Google's public keys");
                         return null;
                     }
 
@@ -947,11 +949,11 @@ public class AuthController : ControllerBase
             // Verify required claims are present
             if (string.IsNullOrEmpty(googleId) || string.IsNullOrEmpty(email))
             {
-                Console.WriteLine("[ERROR] ID token missing required claims (sub or email)");
+                _logger.LogError("ID token missing required claims (sub or email)");
                 return null;
             }
 
-            Console.WriteLine($"[DEBUG] ID token CRYPTOGRAPHICALLY VALIDATED - GoogleId: {googleId}, Email: {email}");
+            _logger.LogInformation("ID token CRYPTOGRAPHICALLY VALIDATED - GoogleId: {GoogleId}, Email: {Email}", googleId, email);
 
             return new GoogleUserInfo
             {
@@ -966,12 +968,12 @@ public class AuthController : ControllerBase
         }
         catch (Microsoft.IdentityModel.Tokens.SecurityTokenException ex)
         {
-            Console.WriteLine($"[ERROR] Token validation failed: {ex.Message}");
+            _logger.LogError("Token validation failed: {Message}", ex.Message);
             return null;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[ERROR] Failed to validate ID token: {ex.Message}");
+            _logger.LogError("Failed to validate ID token: {Message}", ex.Message);
             return null;
         }
     }

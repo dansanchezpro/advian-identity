@@ -48,12 +48,12 @@ start http://localhost:8080
 docker run -d -p 8080:8080 --name identityweb-dev --rm identityserverweb:1.0.0
 
 # Ejecutar exponiendo múltiples puertos
-docker run -d -p 8080:8080 -p 8081:8080 --name identityweb identityserverweb:1.0.0
+docker run -d -p 8080:8080 -p 8081:8080 --name identityserverweb identityserverweb:1.0.0
 
 Versión para CMD ^:
 docker run -d -p 8081:8080 ^
   -e IdentityServer__ApiUrl="http://localhost:8080" ^
-  --name identityweb ^
+  --name identityserverweb ^
   identityserverweb:1.0.0
 
 
